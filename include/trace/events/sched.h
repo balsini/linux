@@ -553,6 +553,36 @@ TRACE_EVENT(sched_wake_idle_without_ipi,
 
 	TP_printk("cpu=%d", __entry->cpu)
 );
+
+/*
+ * Tracepoint for server budget exhausting in SCHED_DEADLINE.
+ */
+TRACE_EVENT(sched_dl_overbudget,
+
+	TP_PROTO(struct sched_dl_entity *dl_se),
+
+	TP_ARGS(dl_se),
+
+	TP_STRUCT__entry(
+		__field(	u64,	dl_runtime)
+		__field(	u64,	dl_deadline)
+		__field(	u64,	dl_period)
+		__field(	u64,	dl_bw)
+		__field(	u64,	runtime)
+		__field(	u64,	deadline)
+	),
+
+	TP_fast_assign(
+		__entry->dl_runtime	= dl_se->dl_runtime;
+		__entry->dl_deadline	= dl_se->dl_deadline;
+		__entry->dl_period	= dl_se->dl_period;
+		__entry->dl_bw		= dl_se->dl_bw;
+		__entry->runtime	= dl_se->runtime;
+		__entry->deadline	= dl_se->deadline;
+	),
+
+	TP_printk("deadline=%llu", __entry->deadline)
+);
 #endif /* _TRACE_SCHED_H */
 
 /* This part must be outside protection */
