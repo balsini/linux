@@ -314,9 +314,9 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
 {
 	struct dl_rq *dl_rq = dl_rq_of_se(dl_se);
 	struct rq *rq = rq_of_dl_rq(dl_rq);
-
+	
 	BUG_ON(pi_se->dl_runtime <= 0);
-
+	
 	/*
 	 * This could be the case for a !-dl task that is boosted.
 	 * Just go with full inherited parameters.
@@ -351,6 +351,8 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
 		dl_se->deadline = rq_clock(rq) + pi_se->dl_deadline;
 		dl_se->runtime = pi_se->dl_runtime;
 	}
+	
+	trace_sched_dl_fillbudget(dl_se);
 }
 
 /*
@@ -459,6 +461,7 @@ static int start_dl_timer(struct sched_dl_entity *dl_se, bool boosted)
 
 	if (boosted)
 		return 0;
+		
 	/*
 	 * We want the timer to fire at the deadline, but considering
 	 * that it is actually coming from rq->clock and not from
@@ -508,6 +511,7 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 						     dl_timer);
 	struct task_struct *p = dl_task_of(dl_se);
 	struct rq *rq;
+	
 again:
 	rq = task_rq(p);
 	raw_spin_lock(&rq->lock);
