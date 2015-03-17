@@ -19,6 +19,104 @@
 #include <linux/slab.h>
 #include <trace/events/sched.h>
 
+/*
+ * Inserts a new element in the SS_QUEUE
+ */
+static int dl_ss_queue_insert(struct ss_queue *ss_queue, struct dl_ss_queue_entity *data)
+{
+	struct rb_node **new = &(ss_queue->rb_tree.rb_node), *parent = NULL;
+	int leftmost = 1;
+	
+	while (*new) {
+		struct dl_ss_queue_entity *this = container_of(*new, struct dl_ss_queue_entity, node);
+		
+		parent = *new;
+		if (data->ss->deadline < this->ss->deadline) {
+			new = &((*new)->rb_left);
+		} else {
+			new = &((*new)->rb_right);
+			leftmost = 0;
+		}
+	}
+	
+	// Add new node and rebalance tree.
+	rb_link_node(&data->node, parent, new);
+	rb_insert_color(&data->node, &ss_queue->rb_tree);
+	
+	if (leftmost)
+		ss_queue->rb_leftmost = &data->node;
+	
+	return 0;
+}
+
+/*
+ * Removes the selected element from the SS_QUEUE
+ */
+/*
+static void dl_ss_queue_remove(struct task_struct *p)
+{
+	struct ss_queue *ss_queue = ss_queue_of_se(p);
+
+	if (RB_EMPTY_NODE(&dl_se->rb_node))
+		return;
+
+	if (dl_rq->rb_leftmost == &dl_se->rb_node) {
+		struct rb_node *next_node;
+
+		next_node = rb_next(&dl_se->rb_node);
+		dl_rq->rb_leftmost = next_node;
+	}
+
+	rb_erase(&dl_se->rb_node, &dl_rq->rb_root);
+	RB_CLEAR_NODE(&dl_se->rb_node);
+}
+*/
+/*
+ * Prints all the ss_queue elements
+ */
+static void dl_ss_queue_print_ordered(struct ss_queue *ss_queue)
+{
+	struct rb_node *this, *last;
+	
+	this = rb_first(&ss_queue->rb_tree);
+	last = rb_last(&ss_queue->rb_tree);
+	
+	printk(KERN_DEBUG"ss_queue_element PRINT BEGIN\n");
+	while (this != last) {
+		printk(KERN_DEBUG"ss_queue element deadline: %lld\n",
+			rb_entry(this, struct dl_ss_queue_entity, node)->ss->deadline);
+		this = rb_next(this);
+	}
+	printk(KERN_DEBUG"ss_queue_element PRINT END\n");
+}
+
+void dl_ss_queue_testbench(void)
+{
+	unsigned int i, j;
+	static struct dl_ss_queue_entity *data = 0;
+	
+	for (i=0; i<num_online_cpus(); ++i) {
+		for (j=0; j<10; ++j) {
+			printk(KERN_DEBUG"ss_queue: i [ %d ], j [ %d ]\n", i, j);
+			data = kmalloc(sizeof(struct dl_ss_queue_entity), GFP_KERNEL);
+			
+			data->leech = 0;
+			
+			data->ss = kmalloc(sizeof(struct sched_dl_entity), GFP_KERNEL);
+			data->ss->deadline = 100;
+			//data->ss->deadline = j;
+			
+			printk(KERN_DEBUG"ss_queue: deadline [ %lld ]\n", data->ss->deadline);
+			
+			dl_ss_queue_insert(cpu_ss_queue(i), data);
+		}
+	}
+	
+	for (i=0; i<num_online_cpus(); ++i) {
+		dl_ss_queue_print_ordered(cpu_ss_queue(i));
+	}
+}
+
 struct dl_bandwidth def_dl_bandwidth;
 
 static inline struct task_struct *dl_task_of(struct sched_dl_entity *dl_se)
@@ -37,6 +135,11 @@ static inline struct dl_rq *dl_rq_of_se(struct sched_dl_entity *dl_se)
 	struct rq *rq = task_rq(p);
 
 	return &rq->dl;
+}
+
+static inline struct ss_queue *ss_queue_of_se(struct sched_dl_entity *dl_se)
+{
+	return task_ss_queue(dl_task_of(dl_se));
 }
 
 static inline int on_dl_rq(struct sched_dl_entity *dl_se)
@@ -84,6 +187,11 @@ void init_dl_rq(struct dl_rq *dl_rq, struct rq *rq)
 #else
 	init_dl_bw(&dl_rq->dl_bw);
 #endif
+}
+
+void init_dl_ss_queue(struct ss_queue *ss_queue)
+{
+	ss_queue->rb_tree = RB_ROOT;
 }
 
 #ifdef CONFIG_SMP
@@ -832,7 +940,7 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct task_struct *pi_task = rt_mutex_get_top_task(p);
 	struct sched_dl_entity *pi_se = &p->dl;
-
+	
 	/*
 	 * Use the scheduling parameters of the top pi-waiter
 	 * task if we have one and its (relative) deadline is

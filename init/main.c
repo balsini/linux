@@ -91,6 +91,8 @@
 #include <asm/smp.h>
 #endif
 
+extern void dl_ss_queue_testbench(void);
+
 static int kernel_init(void *);
 
 extern void init_IRQ(void);
@@ -974,6 +976,9 @@ static int __ref kernel_init(void *unused)
 		       execute_command, ret);
 #endif
 	}
+	
+	dl_ss_queue_testbench();
+	
 	if (!try_to_run_init_process("/sbin/init") ||
 	    !try_to_run_init_process("/etc/init") ||
 	    !try_to_run_init_process("/bin/init") ||

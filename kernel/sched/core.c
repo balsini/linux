@@ -112,6 +112,7 @@ void start_bandwidth_timer(struct hrtimer *period_timer, ktime_t period)
 
 DEFINE_MUTEX(sched_domains_mutex);
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
+DEFINE_PER_CPU_SHARED_ALIGNED(struct ss_queue, ssqueues);
 
 static void update_rq_clock_task(struct rq *rq, s64 delta);
 
@@ -7190,7 +7191,9 @@ void __init sched_init(void)
 
 	for_each_possible_cpu(i) {
 		struct rq *rq;
+		struct ss_queue *ss_queue;
 
+		ss_queue = cpu_ss_queue(i);
 		rq = cpu_rq(i);
 		raw_spin_lock_init(&rq->lock);
 		rq->nr_running = 0;
@@ -7199,6 +7202,7 @@ void __init sched_init(void)
 		init_cfs_rq(&rq->cfs);
 		init_rt_rq(&rq->rt, rq);
 		init_dl_rq(&rq->dl, rq);
+		init_dl_ss_queue(ss_queue);
 #ifdef CONFIG_FAIR_GROUP_SCHED
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
 		INIT_LIST_HEAD(&rq->leaf_cfs_rq_list);
@@ -7262,7 +7266,7 @@ void __init sched_init(void)
 		init_rq_hrtick(rq);
 		atomic_set(&rq->nr_iowait, 0);
 	}
-
+	
 	set_load_weight(&init_task);
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS

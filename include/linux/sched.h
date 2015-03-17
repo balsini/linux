@@ -1255,6 +1255,12 @@ struct sched_dl_entity {
 	struct hrtimer dl_timer;
 };
 
+struct dl_ss_queue_entity {
+	struct rb_node node;
+	struct sched_dl_entity *ss;	// Self-suspended task
+	struct sched_dl_entity *leech;	// ss's bandwidth leecher
+};
+
 union rcu_special {
 	struct {
 		bool blocked;

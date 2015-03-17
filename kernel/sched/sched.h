@@ -670,6 +670,13 @@ struct rq {
 #endif
 };
 
+struct ss_queue {
+	raw_spinlock_t lock;
+	
+	struct rb_root rb_tree;
+	struct rb_node *rb_leftmost;
+};
+
 static inline int cpu_of(struct rq *rq)
 {
 #ifdef CONFIG_SMP
@@ -678,6 +685,13 @@ static inline int cpu_of(struct rq *rq)
 	return 0;
 #endif
 }
+
+DECLARE_PER_CPU_SHARED_ALIGNED(struct ss_queue, ssqueues);
+
+#define cpu_ss_queue(cpu)	(&per_cpu(ssqueues, (cpu)))
+#define this_ss_queue()		this_cpu_ptr(&ssqueues)
+#define task_ss_queue(p)	cpu_ss_queue(task_cpu(p))
+#define raw_ss_queue()		raw_cpu_ptr(&ssqueues)
 
 DECLARE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
@@ -1551,6 +1565,7 @@ extern void print_dl_stats(struct seq_file *m, int cpu);
 extern void init_cfs_rq(struct cfs_rq *cfs_rq);
 extern void init_rt_rq(struct rt_rq *rt_rq, struct rq *rq);
 extern void init_dl_rq(struct dl_rq *dl_rq, struct rq *rq);
+extern void init_dl_ss_queue(struct ss_queue *ss_queue);
 
 extern void cfs_bandwidth_usage_inc(void);
 extern void cfs_bandwidth_usage_dec(void);
