@@ -1208,6 +1208,7 @@ struct sched_rt_entity {
 
 struct sched_dl_entity {
 	struct rb_node	rb_node;
+	struct rb_node	rb_ss_queue_node;
 
 	/*
 	 * Original scheduling parameters. Copied here from sched_attr
@@ -1253,12 +1254,6 @@ struct sched_dl_entity {
 	 * own bandwidth to be enforced, thus we need one timer per task.
 	 */
 	struct hrtimer dl_timer;
-};
-
-struct dl_ss_queue_entity {
-	struct rb_node node;
-	struct sched_dl_entity *ss;	// Self-suspended task
-	struct sched_dl_entity *leech;	// ss's bandwidth leecher
 };
 
 union rcu_special {

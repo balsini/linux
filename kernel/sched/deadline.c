@@ -22,12 +22,44 @@
 /*
  * Inserts a new element in the SS_QUEUE
  */
-static int dl_ss_queue_insert(struct ss_queue *ss_queue, struct dl_ss_queue_entity *data)
+static int dl_ss_queue_insert(struct ss_queue *ss_queue, struct sched_dl_entity *data)
 {
 	struct rb_node **new = &(ss_queue->rb_tree.rb_node), *parent = NULL;
 	int leftmost = 1;
 	
 	while (*new) {
+		struct sched_dl_entity *this = container_of(*new, struct sched_dl_entity, rb_ss_queue_node);
+		
+		parent = *new;
+		if (data->deadline < this->deadline) {
+			new = &((*new)->rb_left);
+		} else {
+			new = &((*new)->rb_right);
+			leftmost = 0;
+		}
+	}
+	
+	// Add new node and rebalance tree.
+	rb_link_node(&data->rb_ss_queue_node, parent, new);
+	rb_insert_color(&data->rb_ss_queue_node, &ss_queue->rb_tree);
+	
+	if (leftmost)
+		ss_queue->rb_leftmost = &data->rb_ss_queue_node;
+	
+	return 0;
+}
+
+/*
+ * Searches the sched_dl_entity element in the SS_QUEUE
+ * and returns its dl_ss_queue_entity.
+ */
+/*
+static struct dl_ss_queue_entity *
+dl_ss_queue_search(struct ss_queue *ss_queue, struct sched_dl_entity *data)
+{
+	struct rb_node *node = ss_queue->rb_tree.rb_ss_queue_node;
+	
+	while (node) {
 		struct dl_ss_queue_entity *this = container_of(*new, struct dl_ss_queue_entity, node);
 		
 		parent = *new;
@@ -46,29 +78,29 @@ static int dl_ss_queue_insert(struct ss_queue *ss_queue, struct dl_ss_queue_enti
 	if (leftmost)
 		ss_queue->rb_leftmost = &data->node;
 	
-	return 0;
+	return NULL;
 }
-
+*/
 /*
  * Removes the selected element from the SS_QUEUE
  */
 /*
-static void dl_ss_queue_remove(struct task_struct *p)
+static void dl_ss_queue_remove(struct ss_queue *ss_queue, struct dl_ss_queue_entity *elem)
 {
 	struct ss_queue *ss_queue = ss_queue_of_se(p);
 
-	if (RB_EMPTY_NODE(&dl_se->rb_node))
+	if (RB_EMPTY_NODE(&dl_se->rb_ss_queue_node))
 		return;
 
-	if (dl_rq->rb_leftmost == &dl_se->rb_node) {
-		struct rb_node *next_node;
+	if (dl_rq->rb_leftmost == &dl_se->rb_ss_queue_node) {
+		struct rb_ss_queue_node *next_node;
 
-		next_node = rb_next(&dl_se->rb_node);
+		next_node = rb_next(&dl_se->rb_ss_queue_node);
 		dl_rq->rb_leftmost = next_node;
 	}
 
-	rb_erase(&dl_se->rb_node, &dl_rq->rb_root);
-	RB_CLEAR_NODE(&dl_se->rb_node);
+	rb_erase(&dl_se->rb_ss_queue_node, &dl_rq->rb_root);
+	RB_CLEAR_NODE(&dl_se->rb_ss_queue_node);
 }
 */
 /*
@@ -76,15 +108,14 @@ static void dl_ss_queue_remove(struct task_struct *p)
  */
 static void dl_ss_queue_print_ordered(struct ss_queue *ss_queue)
 {
-	struct rb_node *this, *last;
+	struct rb_node *this;
 	
 	this = rb_first(&ss_queue->rb_tree);
-	last = rb_last(&ss_queue->rb_tree);
 	
 	printk(KERN_DEBUG"ss_queue_element PRINT BEGIN\n");
-	while (this != last) {
+	while (this) {
 		printk(KERN_DEBUG"ss_queue element deadline: %lld\n",
-			rb_entry(this, struct dl_ss_queue_entity, node)->ss->deadline);
+			rb_entry(this, struct sched_dl_entity, rb_ss_queue_node)->deadline);
 		this = rb_next(this);
 	}
 	printk(KERN_DEBUG"ss_queue_element PRINT END\n");
@@ -93,28 +124,31 @@ static void dl_ss_queue_print_ordered(struct ss_queue *ss_queue)
 void dl_ss_queue_testbench(void)
 {
 	unsigned int i, j;
-	static struct dl_ss_queue_entity *data = 0;
+	static struct sched_dl_entity *data = 0;
+	
+	/************************************
+	 *  Inserting elements into RBTree  *
+	 ************************************/
 	
 	for (i=0; i<num_online_cpus(); ++i) {
 		for (j=0; j<10; ++j) {
 			printk(KERN_DEBUG"ss_queue: i [ %d ], j [ %d ]\n", i, j);
-			data = kmalloc(sizeof(struct dl_ss_queue_entity), GFP_KERNEL);
+			data = kmalloc(sizeof(struct sched_dl_entity), GFP_KERNEL);
 			
-			data->leech = 0;
+			data->deadline = j;
 			
-			data->ss = kmalloc(sizeof(struct sched_dl_entity), GFP_KERNEL);
-			data->ss->deadline = 100;
-			//data->ss->deadline = j;
-			
-			printk(KERN_DEBUG"ss_queue: deadline [ %lld ]\n", data->ss->deadline);
+			printk(KERN_DEBUG"ss_queue: deadline [ %lld ]\n", data->deadline);
 			
 			dl_ss_queue_insert(cpu_ss_queue(i), data);
 		}
 	}
 	
-	for (i=0; i<num_online_cpus(); ++i) {
+	for (i=0; i<num_online_cpus(); ++i)
 		dl_ss_queue_print_ordered(cpu_ss_queue(i));
-	}
+	
+	/************************************
+	 *   Removing element from RBTree   *
+	 ************************************/
 }
 
 struct dl_bandwidth def_dl_bandwidth;
@@ -978,6 +1012,9 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 
 static void __dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 {
+	//if (!dl_runtime_exceeded(rq, dl_se)) {
+		// The task is self suspended, so, place it into the SS_QUEUE
+	//}	
 	dequeue_dl_entity(&p->dl);
 	dequeue_pushable_dl_task(rq, p);
 }
