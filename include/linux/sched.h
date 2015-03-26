@@ -1210,6 +1210,8 @@ struct sched_dl_entity {
 	struct rb_node	rb_node;
 	struct rb_node	rb_ss_queue_node;
 
+	struct ss_queue	*in_ss_queue;
+	
 	/*
 	 * Original scheduling parameters. Copied here from sched_attr
 	 * during sched_setattr(), they will remain the same until

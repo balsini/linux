@@ -33,9 +33,13 @@ static int dl_ss_queue_insert(struct ss_queue *ss_queue, struct sched_dl_entity 
 		parent = *new;
 		if (data->deadline < this->deadline) {
 			new = &((*new)->rb_left);
-		} else {
+		} else if (data->deadline >= this->deadline) {
 			new = &((*new)->rb_right);
 			leftmost = 0;
+		} else if (data == this) {
+			// The process is already in the list, so
+			// no insertion is required
+			return -1;
 		}
 	}
 	
@@ -51,58 +55,56 @@ static int dl_ss_queue_insert(struct ss_queue *ss_queue, struct sched_dl_entity 
 
 /*
  * Searches the sched_dl_entity element in the SS_QUEUE
- * and returns its dl_ss_queue_entity.
+ * and returns its node associated to the wanted
+ * sched_dl_entity.
  */
-/*
-static struct dl_ss_queue_entity *
+static struct rb_node *
 dl_ss_queue_search(struct ss_queue *ss_queue, struct sched_dl_entity *data)
 {
-	struct rb_node *node = ss_queue->rb_tree.rb_ss_queue_node;
+	struct rb_node *node = ss_queue->rb_tree.rb_node;
 	
 	while (node) {
-		struct dl_ss_queue_entity *this = container_of(*new, struct dl_ss_queue_entity, node);
+		struct sched_dl_entity *this = container_of(node, struct sched_dl_entity, rb_ss_queue_node);
 		
-		parent = *new;
-		if (data->ss->deadline < this->ss->deadline) {
-			new = &((*new)->rb_left);
+		if (data->deadline < this->deadline) {
+			node = node->rb_left;
+		} else if (data->deadline > this->deadline) {
+			node = node->rb_right;
 		} else {
-			new = &((*new)->rb_right);
-			leftmost = 0;
+			while (node && data->deadline == this->deadline) {
+				this = container_of(node, struct sched_dl_entity, rb_ss_queue_node);
+				if (data == this)
+					return node;
+				node = node->rb_right;
+			}
+			return NULL;
 		}
 	}
 	
-	// Add new node and rebalance tree.
-	rb_link_node(&data->node, parent, new);
-	rb_insert_color(&data->node, &ss_queue->rb_tree);
-	
-	if (leftmost)
-		ss_queue->rb_leftmost = &data->node;
-	
 	return NULL;
 }
-*/
+
 /*
  * Removes the selected element from the SS_QUEUE
  */
-/*
-static void dl_ss_queue_remove(struct ss_queue *ss_queue, struct dl_ss_queue_entity *elem)
+static void dl_ss_queue_remove(struct ss_queue *ss_queue, struct sched_dl_entity *data)
 {
-	struct ss_queue *ss_queue = ss_queue_of_se(p);
-
-	if (RB_EMPTY_NODE(&dl_se->rb_ss_queue_node))
+	//struct rb_node *node = dl_ss_queue_search(ss_queue, data);
+	
+	if (RB_EMPTY_NODE(&data->rb_ss_queue_node))
 		return;
 
-	if (dl_rq->rb_leftmost == &dl_se->rb_ss_queue_node) {
-		struct rb_ss_queue_node *next_node;
+	if (data->in_ss_queue->rb_leftmost == &data->rb_ss_queue_node) {
+		struct rb_node *next_node;
 
-		next_node = rb_next(&dl_se->rb_ss_queue_node);
-		dl_rq->rb_leftmost = next_node;
+		next_node = rb_next(&data->rb_ss_queue_node);
+		data->in_ss_queue->rb_leftmost = next_node;
 	}
 
-	rb_erase(&dl_se->rb_ss_queue_node, &dl_rq->rb_root);
-	RB_CLEAR_NODE(&dl_se->rb_ss_queue_node);
+	rb_erase(&data->rb_ss_queue_node, &data->in_ss_queue->rb_tree);
+	RB_CLEAR_NODE(&data->rb_ss_queue_node);
 }
-*/
+
 /*
  * Prints all the ss_queue elements
  */
@@ -123,23 +125,26 @@ static void dl_ss_queue_print_ordered(struct ss_queue *ss_queue)
 
 void dl_ss_queue_testbench(void)
 {
+#if 1
 	unsigned int i, j;
-	static struct sched_dl_entity *data = 0;
-	
+	static struct sched_dl_entity data[100];
+	unsigned int max_j = 10;
+	unsigned int array_index;
 	/************************************
 	 *  Inserting elements into RBTree  *
 	 ************************************/
 	
 	for (i=0; i<num_online_cpus(); ++i) {
-		for (j=0; j<10; ++j) {
+		for (j=0; j<max_j; ++j) {
+			array_index = max_j * i + j;
 			printk(KERN_DEBUG"ss_queue: i [ %d ], j [ %d ]\n", i, j);
-			data = kmalloc(sizeof(struct sched_dl_entity), GFP_KERNEL);
 			
-			data->deadline = j;
+			data[array_index].deadline = j % 4;
 			
-			printk(KERN_DEBUG"ss_queue: deadline [ %lld ]\n", data->deadline);
+			printk(KERN_DEBUG"ss_queue: deadline [ %lld ]\n", data[array_index].deadline);
 			
-			dl_ss_queue_insert(cpu_ss_queue(i), data);
+			data[array_index].in_ss_queue = cpu_ss_queue(i);
+			dl_ss_queue_insert(data[array_index].in_ss_queue, &data[array_index]);
 		}
 	}
 	
@@ -149,6 +154,20 @@ void dl_ss_queue_testbench(void)
 	/************************************
 	 *   Removing element from RBTree   *
 	 ************************************/
+	
+	for (i=0; i<num_online_cpus(); ++i) {
+		for (j=0; j<max_j; ++j) {
+			array_index = max_j * i + j;
+			printk(KERN_DEBUG"ss_queue: i [ %d ], j [ %d ] REMOVE\n", i, j);
+			
+			dl_ss_queue_remove(data[array_index].in_ss_queue, &data[array_index]);
+		}
+	}
+	
+	for (i=0; i<num_online_cpus(); ++i)
+		dl_ss_queue_print_ordered(cpu_ss_queue(i));
+	
+#endif
 }
 
 struct dl_bandwidth def_dl_bandwidth;
@@ -975,6 +994,15 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	struct task_struct *pi_task = rt_mutex_get_top_task(p);
 	struct sched_dl_entity *pi_se = &p->dl;
 	
+	if (p->dl.in_ss_queue) {
+		// Remove task from SS_QUEUE
+		printk(KERN_DEBUG"enqueue_task_dl, removING task from queue\n");
+		// The task is self suspended, so, place it into the SS_QUEUE
+		dl_ss_queue_remove(p->dl.in_ss_queue, &p->dl);
+		p->dl.in_ss_queue = 0;
+		printk(KERN_DEBUG"enqueue_task_dl, removED task from queue\n");
+	}
+	
 	/*
 	 * Use the scheduling parameters of the top pi-waiter
 	 * task if we have one and its (relative) deadline is
@@ -1012,9 +1040,23 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 
 static void __dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 {
-	//if (!dl_runtime_exceeded(rq, dl_se)) {
-		// The task is self suspended, so, place it into the SS_QUEUE
-	//}	
+	if (!dl_runtime_exceeded(rq, &p->dl)) {
+		printk(KERN_DEBUG"__dequeue_task_dl, exceeded, flags: [ %d ]\n", flags);
+		if (flags & 1) {
+			int i;
+			
+			if (!p->dl.in_ss_queue) {
+				p->dl.in_ss_queue = this_ss_queue();
+				printk(KERN_DEBUG"__dequeue_task_dl, SS detected\n");
+				// The task is self suspended, so, place it into the SS_QUEUE
+				dl_ss_queue_insert(p->dl.in_ss_queue, &p->dl);
+				printk(KERN_DEBUG"__dequeue_task_dl, INSERTED\n");
+			}
+		
+			for (i=0; i<num_online_cpus(); ++i)
+				dl_ss_queue_print_ordered(cpu_ss_queue(i));
+		}
+	}
 	dequeue_dl_entity(&p->dl);
 	dequeue_pushable_dl_task(rq, p);
 }
