@@ -125,7 +125,7 @@ static void dl_ss_queue_print_ordered(struct ss_queue *ss_queue)
 
 void dl_ss_queue_testbench(void)
 {
-#if 1
+#if 0
 	unsigned int i, j;
 	static struct sched_dl_entity data[100];
 	unsigned int max_j = 10;
@@ -996,11 +996,11 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	
 	if (p->dl.in_ss_queue) {
 		// Remove task from SS_QUEUE
-		printk(KERN_DEBUG"enqueue_task_dl, removING task from queue\n");
+		printk(KERN_DEBUG"ss_queue:enqueue_task_dl, removING task from queue\n");
 		// The task is self suspended, so, place it into the SS_QUEUE
 		dl_ss_queue_remove(p->dl.in_ss_queue, &p->dl);
 		p->dl.in_ss_queue = 0;
-		printk(KERN_DEBUG"enqueue_task_dl, removED task from queue\n");
+		printk(KERN_DEBUG"ss_queue:enqueue_task_dl, removED task from queue\n");
 	}
 	
 	/*
@@ -1041,16 +1041,16 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 static void __dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 {
 	if (!dl_runtime_exceeded(rq, &p->dl)) {
-		printk(KERN_DEBUG"__dequeue_task_dl, exceeded, flags: [ %d ]\n", flags);
+		printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, exceeded, flags: [ %d ]\n", flags);
 		if (flags & 1) {
 			int i;
 			
 			if (!p->dl.in_ss_queue) {
 				p->dl.in_ss_queue = this_ss_queue();
-				printk(KERN_DEBUG"__dequeue_task_dl, SS detected\n");
+				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, SS detected\n");
 				// The task is self suspended, so, place it into the SS_QUEUE
 				dl_ss_queue_insert(p->dl.in_ss_queue, &p->dl);
-				printk(KERN_DEBUG"__dequeue_task_dl, INSERTED\n");
+				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, INSERTED\n");
 			}
 		
 			for (i=0; i<num_online_cpus(); ++i)
@@ -1283,6 +1283,9 @@ static void task_dead_dl(struct task_struct *p)
 	struct hrtimer *timer = &p->dl.dl_timer;
 	struct dl_bw *dl_b = dl_bw_of(task_cpu(p));
 
+	printk(KERN_DEBUG"ss_queue:task_dead_dl, removing task\n");
+	dl_ss_queue_remove(p->dl.in_ss_queue, &p->dl);
+	p->dl.in_ss_queue = 0;
 	/*
 	 * Since we are TASK_DEAD we won't slip out of the domain!
 	 */
