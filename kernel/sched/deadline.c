@@ -58,6 +58,7 @@ static int dl_ss_queue_insert(struct ss_queue *ss_queue, struct sched_dl_entity 
  * and returns its node associated to the wanted
  * sched_dl_entity.
  */
+/*
 static struct rb_node *
 dl_ss_queue_search(struct ss_queue *ss_queue, struct sched_dl_entity *data)
 {
@@ -83,6 +84,7 @@ dl_ss_queue_search(struct ss_queue *ss_queue, struct sched_dl_entity *data)
 	
 	return NULL;
 }
+*/
 
 /*
  * Removes the selected element from the SS_QUEUE
@@ -747,6 +749,7 @@ extern bool sched_rt_bandwidth_account(struct rt_rq *rt_rq);
  */
 static void update_curr_dl(struct rq *rq)
 {
+	struct sched_dl_entity *ss_queue_head;
 	struct task_struct *curr = rq->curr;
 	struct sched_dl_entity *dl_se = &curr->dl;
 	u64 delta_exec;
@@ -777,6 +780,27 @@ static void update_curr_dl(struct rq *rq)
 
 	sched_rt_avg_update(rq, delta_exec);
 
+	/*
+	 * Consume budget also from the head of SS_QUEUE
+	 */
+	if (this_ss_queue()->rb_leftmost) {
+		ss_queue_head = container_of(this_ss_queue()->rb_leftmost,
+					struct sched_dl_entity,
+				rb_ss_queue_node);
+		ss_queue_head->runtime -= delta_exec;
+		if (dl_runtime_exceeded(rq, ss_queue_head)) {
+			dl_ss_queue_remove(ss_queue_head->in_ss_queue, ss_queue_head);
+			
+			if (likely(start_dl_timer(ss_queue_head, ss_queue_head->dl_boosted)))
+				ss_queue_head->dl_throttled = 1;
+			else
+				enqueue_task_dl(rq, ss_queue_head, ENQUEUE_REPLENISH);
+
+			if (!is_leftmost(ss_queue_head, &rq->dl))
+				resched_curr(rq);
+		}
+	}
+	
 	dl_se->runtime -= dl_se->dl_yielded ? 0 : delta_exec;
 	if (dl_runtime_exceeded(rq, dl_se)) {
 		trace_sched_dl_overbudget(dl_se);
