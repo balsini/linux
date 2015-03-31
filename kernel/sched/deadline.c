@@ -43,6 +43,8 @@ static int dl_ss_queue_insert(struct ss_queue *ss_queue, struct sched_dl_entity 
 		}
 	}
 	
+	trace_sched_dl_ss_queue_new(data);
+	
 	// Add new node and rebalance tree.
 	rb_link_node(&data->rb_ss_queue_node, parent, new);
 	rb_insert_color(&data->rb_ss_queue_node, &ss_queue->rb_tree);
@@ -96,6 +98,8 @@ static void dl_ss_queue_remove(struct ss_queue *ss_queue, struct sched_dl_entity
 	if (RB_EMPTY_NODE(&data->rb_ss_queue_node))
 		return;
 
+	trace_sched_dl_ss_queue_delete(data);
+	
 	if (data->in_ss_queue->rb_leftmost == &data->rb_ss_queue_node)
 		data->in_ss_queue->rb_leftmost = rb_next(&data->rb_ss_queue_node);
 
@@ -438,6 +442,8 @@ static inline void setup_new_dl_entity(struct sched_dl_entity *dl_se,
 	struct dl_rq *dl_rq = dl_rq_of_se(dl_se);
 	struct rq *rq = rq_of_dl_rq(dl_rq);
 
+	trace_sched_dl_new(dl_se);
+	
 	WARN_ON(!dl_se->dl_new || dl_se->dl_throttled);
 
 	/*
@@ -1080,7 +1086,6 @@ static void __dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 				p->dl.in_ss_queue = this_ss_queue();
 				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, SS detected\n");
 				// The task is self suspended, so, place it into the SS_QUEUE
-				trace_sched_dl_ss_queue_new(&p->dl);
 				dl_ss_queue_insert(p->dl.in_ss_queue, &p->dl);
 				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, INSERTED\n");
 			}

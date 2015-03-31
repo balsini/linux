@@ -555,6 +555,39 @@ TRACE_EVENT(sched_wake_idle_without_ipi,
 );
 
 /*
+ * Tracepoint for newborn SCHED_DEADLINE task.
+ */
+TRACE_EVENT(sched_dl_new,
+
+	TP_PROTO(struct sched_dl_entity *dl_se),
+
+	TP_ARGS(dl_se),
+
+	TP_STRUCT__entry(
+		__field(	u64,	dl_runtime)
+		__field(	u64,	dl_deadline)
+		__field(	u64,	dl_period)
+		__field(	u64,	dl_bw)
+		__field(	u64,	runtime)
+		__field(	u64,	deadline)
+	),
+
+	TP_fast_assign(
+		__entry->dl_runtime	= dl_se->dl_runtime;
+		__entry->dl_deadline	= dl_se->dl_deadline;
+		__entry->dl_period	= dl_se->dl_period;
+		__entry->dl_bw		= dl_se->dl_bw;
+		__entry->runtime	= dl_se->runtime;
+		__entry->deadline	= dl_se->deadline;
+	),
+
+	TP_printk("deadline=%llu period=%llu runtime=%llu",
+		  __entry->dl_deadline,
+	   __entry->dl_period,
+	   __entry->dl_runtime)
+);
+
+/*
  * Tracepoint for server budget exhausting in SCHED_DEADLINE.
  */
 TRACE_EVENT(sched_dl_overbudget,
@@ -581,7 +614,10 @@ TRACE_EVENT(sched_dl_overbudget,
 		__entry->deadline	= dl_se->deadline;
 	),
 
-	TP_printk("deadline=%llu", __entry->deadline)
+	TP_printk("deadline=%llu period=%llu runtime=%llu",
+		  __entry->deadline,
+	   __entry->dl_period,
+	   __entry->runtime)
 );
 
 /*
@@ -611,7 +647,10 @@ TRACE_EVENT(sched_dl_fillbudget,
 		__entry->deadline	= dl_se->deadline;
 	),
 
-	TP_printk("deadline=%llu", __entry->deadline)
+	TP_printk("deadline=%llu period=%llu runtime=%llu",
+		  __entry->deadline,
+	   __entry->dl_period,
+	   __entry->runtime)
 );
 
 TRACE_EVENT(sched_dl_ss_queue_new,
@@ -638,7 +677,40 @@ TRACE_EVENT(sched_dl_ss_queue_new,
 		__entry->deadline	= dl_se->deadline;
 	),
 
-	TP_printk("deadline=%llu", __entry->deadline)
+	TP_printk("deadline=%llu period=%llu runtime=%llu",
+		  __entry->dl_deadline,
+	   __entry->dl_period,
+	   __entry->dl_runtime)
+);
+
+TRACE_EVENT(sched_dl_ss_queue_delete,
+
+	TP_PROTO(struct sched_dl_entity *dl_se),
+
+	TP_ARGS(dl_se),
+
+	TP_STRUCT__entry(
+		__field(	u64,	dl_runtime)
+		__field(	u64,	dl_deadline)
+		__field(	u64,	dl_period)
+		__field(	u64,	dl_bw)
+		__field(	u64,	runtime)
+		__field(	u64,	deadline)
+	),
+
+	TP_fast_assign(
+		__entry->dl_runtime	= dl_se->dl_runtime;
+		__entry->dl_deadline	= dl_se->dl_deadline;
+		__entry->dl_period	= dl_se->dl_period;
+		__entry->dl_bw		= dl_se->dl_bw;
+		__entry->runtime	= dl_se->runtime;
+		__entry->deadline	= dl_se->deadline;
+	),
+
+	TP_printk("deadline=%llu period=%llu runtime=%llu",
+		  __entry->dl_deadline,
+	   __entry->dl_period,
+	   __entry->dl_runtime)
 );
 
 TRACE_EVENT(sched_dl_ss_queue_overbudget,
@@ -665,7 +737,10 @@ TRACE_EVENT(sched_dl_ss_queue_overbudget,
 		__entry->deadline	= dl_se->deadline;
 	),
 
-	TP_printk("deadline=%llu", __entry->deadline)
+	TP_printk("deadline=%llu period=%llu runtime=%llu",
+		  __entry->dl_deadline,
+	   __entry->dl_period,
+	   __entry->dl_runtime)
 );
 #endif /* _TRACE_SCHED_H */
 
