@@ -50,6 +50,9 @@ static inline int is_leftmost(struct task_struct *p, struct dl_rq *dl_rq)
 	return dl_rq->rb_leftmost == &dl_se->rb_node;
 }
 
+/*
+ * Initializes the total bandwidth for the SCHED_DEADLINE scheduling class
+ */
 void init_dl_bandwidth(struct dl_bandwidth *dl_b, u64 period, u64 runtime)
 {
 	raw_spin_lock_init(&dl_b->dl_runtime_lock);
@@ -57,6 +60,9 @@ void init_dl_bandwidth(struct dl_bandwidth *dl_b, u64 period, u64 runtime)
 	dl_b->dl_runtime = runtime;
 }
 
+/*
+ * Initializes the bandwidth for the SCHED_DEADLINE ready queue
+ */
 void init_dl_bw(struct dl_bw *dl_b)
 {
 	raw_spin_lock_init(&dl_b->lock);
@@ -69,6 +75,9 @@ void init_dl_bw(struct dl_bw *dl_b)
 	dl_b->total_bw = 0;
 }
 
+/*
+ * Initializes the ready queue
+ */
 void init_dl_rq(struct dl_rq *dl_rq, struct rq *rq)
 {
 	dl_rq->rb_root = RB_ROOT;
