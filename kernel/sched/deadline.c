@@ -782,35 +782,39 @@ static void update_curr_dl(struct rq *rq)
 
 	sched_rt_avg_update(rq, delta_exec);
 
-	/*
-	 * Consume budget also from the head of SS_QUEUE
-	 */
+	// Consume budget also from the head of SS_QUEUE
 	if (this_ss_queue()->rb_leftmost) {
 		
 		ss_queue_head = container_of(this_ss_queue()->rb_leftmost,
 					struct sched_dl_entity,
 				rb_ss_queue_node);
 		
-		ss_queue_head->runtime -= delta_exec;
+		// The budget is consumed only if the running task has lower priority
+		// than the head of the SS_QUEUE
 		
-		printk(KERN_DEBUG"update_curr_dl CONSUMING BUDGET [ %lld ] FROM [ %d ] SS_QUEUE\n", delta_exec, dl_task_of(ss_queue_head)->pid);
-		printk(KERN_DEBUG"update_curr_dl remaining %lld\n", ss_queue_head->runtime);
-		
-		if (dl_runtime_exceeded(rq, ss_queue_head)) {
-						
-			printk(KERN_DEBUG"update_curr_dl BUDGET FINISHED\n");
+		if (ss_queue_head->deadline < dl_se->deadline) {
+			ss_queue_head->runtime -= delta_exec;
 			
-			trace_sched_dl_ss_queue_overbudget(ss_queue_head);
+			printk(KERN_DEBUG"update_curr_dl CONSUMING BUDGET [ %lld ] FROM [ %d ] SS_QUEUE\n", delta_exec, dl_task_of(ss_queue_head)->pid);
+			printk(KERN_DEBUG"update_curr_dl remaining %lld\n", ss_queue_head->runtime);
 			
-			dl_ss_queue_remove(ss_queue_head->in_ss_queue, ss_queue_head);
-			
-			if (likely(start_dl_timer(ss_queue_head, ss_queue_head->dl_boosted)))
-				ss_queue_head->dl_throttled = 1;
-			else
-				enqueue_task_dl(rq, dl_task_of(ss_queue_head), ENQUEUE_REPLENISH);
+			if (dl_runtime_exceeded(rq, ss_queue_head)) {
+							
+				printk(KERN_DEBUG"update_curr_dl BUDGET FINISHED\n");
+				
+				trace_sched_dl_ss_queue_overbudget(ss_queue_head);
+				
+				dl_ss_queue_remove(ss_queue_head->in_ss_queue, ss_queue_head);
+				ss_queue_head->in_ss_queue = 0;
+								
+				if (likely(start_dl_timer(ss_queue_head, ss_queue_head->dl_boosted)))
+					ss_queue_head->dl_throttled = 1;
+				else
+					enqueue_task_dl(rq, dl_task_of(ss_queue_head), ENQUEUE_REPLENISH);
 
-			if (!is_leftmost(dl_task_of(ss_queue_head), &rq->dl))
-				resched_curr(rq);
+				if (!is_leftmost(dl_task_of(ss_queue_head), &rq->dl))
+					resched_curr(rq);
+			}
 		}
 	}
 	
