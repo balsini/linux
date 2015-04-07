@@ -792,7 +792,7 @@ static void update_curr_dl(struct rq *rq)
 		// The budget is consumed only if the running task has lower priority
 		// than the head of the SS_QUEUE
 		
-		if (ss_queue_head->deadline < dl_se->deadline) {
+		if (dl_se->deadline >= ss_queue_head->deadline) {
 			ss_queue_head->runtime -= delta_exec;
 			
 			printk(KERN_DEBUG"update_curr_dl CONSUMING BUDGET [ %lld ] FROM [ %d ] SS_QUEUE\n", delta_exec, dl_task_of(ss_queue_head)->pid);
@@ -1087,9 +1087,9 @@ static void __dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 			int i;
 			
 			if (!p->dl.in_ss_queue) {
-				p->dl.in_ss_queue = this_ss_queue();
 				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, SS detected\n");
 				// The task is self suspended, so, place it into the SS_QUEUE
+				p->dl.in_ss_queue = this_ss_queue();
 				dl_ss_queue_insert(p->dl.in_ss_queue, &p->dl);
 				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, INSERTED\n");
 			}
