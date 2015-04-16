@@ -19,38 +19,43 @@
 #include <linux/slab.h>
 #include <trace/events/sched.h>
 
+#define SILENT_PRINTK
+
 /*
  * Inserts a new element in the SS_QUEUE
  */
 static int dl_ss_queue_insert(struct ss_queue *ss_queue, struct sched_dl_entity *data)
 {
 	struct rb_node **new = &(ss_queue->rb_tree.rb_node), *parent = NULL;
+	struct sched_dl_entity *this;
 	int leftmost = 1;
 	
 	while (*new) {
-		struct sched_dl_entity *this = container_of(*new, struct sched_dl_entity, rb_ss_queue_node);
-		
 		parent = *new;
-		if (data->deadline < this->deadline) {
-			new = &((*new)->rb_left);
-		} else if (data->deadline >= this->deadline) {
-			new = &((*new)->rb_right);
-			leftmost = 0;
-		} else if (data == this) {
+		this = container_of(parent, struct sched_dl_entity, rb_ss_queue_node);
+		
+		if (data == this) {
 			// The process is already in the list, so
 			// no insertion is required
 			return -1;
+		}
+		
+		if (data->deadline < this->deadline) {
+			new = &((*new)->rb_left);
+		} else {
+			new = &((*new)->rb_right);
+			leftmost = 0;
 		}
 	}
 	
 	trace_sched_dl_ss_queue_new(data);
 	
+	if (leftmost)
+		ss_queue->rb_leftmost = &data->rb_ss_queue_node;
+	
 	// Add new node and rebalance tree.
 	rb_link_node(&data->rb_ss_queue_node, parent, new);
 	rb_insert_color(&data->rb_ss_queue_node, &ss_queue->rb_tree);
-	
-	if (leftmost)
-		ss_queue->rb_leftmost = &data->rb_ss_queue_node;
 	
 	return 0;
 }
@@ -112,22 +117,24 @@ static void dl_ss_queue_remove(struct ss_queue *ss_queue, struct sched_dl_entity
  */
 static void dl_ss_queue_print_ordered(struct ss_queue *ss_queue)
 {
-	struct rb_node *this;
-	
-	this = rb_first(&ss_queue->rb_tree);
+	struct rb_node *this = rb_first(&ss_queue->rb_tree);
 	
 	printk(KERN_DEBUG"ss_queue_element PRINT BEGIN\n");
+	
 	while (this) {
+		
 		printk(KERN_DEBUG"ss_queue element deadline: %lld\n",
 			rb_entry(this, struct sched_dl_entity, rb_ss_queue_node)->deadline);
+
 		this = rb_next(this);
 	}
+	
 	printk(KERN_DEBUG"ss_queue_element PRINT END\n");
 }
 
 void dl_ss_queue_testbench(void)
 {
-#if 0
+#if 1
 	unsigned int i, j;
 	static struct sched_dl_entity data[100];
 	unsigned int max_j = 10;
@@ -745,13 +752,56 @@ int dl_runtime_exceeded(struct rq *rq, struct sched_dl_entity *dl_se)
 
 extern bool sched_rt_bandwidth_account(struct rt_rq *rt_rq);
 
+static void update_ss_queue(struct rq *rq, struct sched_dl_entity *dl_se, u64 delta_exec)
+{
+	struct sched_dl_entity *ss_queue_head;
+	
+	if (this_ss_queue()->rb_leftmost) {
+		
+		ss_queue_head = container_of(this_ss_queue()->rb_leftmost,
+					struct sched_dl_entity,
+				rb_ss_queue_node);
+		
+		// The budget is consumed only if the running task has lower priority
+		// than the head of the SS_QUEUE
+		
+		if (dl_se->deadline >= ss_queue_head->deadline) {
+			ss_queue_head->runtime -= delta_exec;
+			
+#ifndef SILENT_PRINTK
+			printk(KERN_DEBUG"update_curr_dl CONSUMING BUDGET [ %lld ] FROM [ %d ] SS_QUEUE\n", delta_exec, dl_task_of(ss_queue_head)->pid);
+			printk(KERN_DEBUG"update_curr_dl remaining %lld\n", ss_queue_head->runtime);
+#endif
+			
+			if (dl_runtime_exceeded(rq, ss_queue_head)) {
+#ifndef SILENT_PRINTK
+				printk(KERN_DEBUG"update_curr_dl BUDGET FINISHED\n");
+#endif
+				
+				trace_sched_dl_ss_queue_overbudget(ss_queue_head);
+				
+				dl_ss_queue_remove(ss_queue_head->in_ss_queue, ss_queue_head);
+				ss_queue_head->in_ss_queue = 0;
+								
+				if (likely(start_dl_timer(ss_queue_head, ss_queue_head->dl_boosted)))
+					ss_queue_head->dl_throttled = 1;
+				//else
+				//	enqueue_task_dl(rq, dl_task_of(ss_queue_head), ENQUEUE_REPLENISH);
+
+				//if (!is_leftmost(dl_task_of(ss_queue_head), &rq->dl))
+				//	resched_curr(rq);
+			}
+		}
+	}
+}
+
+
 /*
  * Update the current task's runtime statistics (provided it is still
  * a -deadline task and has not been removed from the dl_rq).
  */
 static void update_curr_dl(struct rq *rq)
 {
-	struct sched_dl_entity *ss_queue_head;
 	struct task_struct *curr = rq->curr;
 	struct sched_dl_entity *dl_se = &curr->dl;
 	u64 delta_exec;
@@ -783,40 +833,7 @@ static void update_curr_dl(struct rq *rq)
 	sched_rt_avg_update(rq, delta_exec);
 
 	// Consume budget also from the head of SS_QUEUE
-	if (this_ss_queue()->rb_leftmost) {
-		
-		ss_queue_head = container_of(this_ss_queue()->rb_leftmost,
-					struct sched_dl_entity,
-				rb_ss_queue_node);
-		
-		// The budget is consumed only if the running task has lower priority
-		// than the head of the SS_QUEUE
-		
-		if (dl_se->deadline >= ss_queue_head->deadline) {
-			ss_queue_head->runtime -= delta_exec;
-			
-			printk(KERN_DEBUG"update_curr_dl CONSUMING BUDGET [ %lld ] FROM [ %d ] SS_QUEUE\n", delta_exec, dl_task_of(ss_queue_head)->pid);
-			printk(KERN_DEBUG"update_curr_dl remaining %lld\n", ss_queue_head->runtime);
-			
-			if (dl_runtime_exceeded(rq, ss_queue_head)) {
-							
-				printk(KERN_DEBUG"update_curr_dl BUDGET FINISHED\n");
-				
-				trace_sched_dl_ss_queue_overbudget(ss_queue_head);
-				
-				dl_ss_queue_remove(ss_queue_head->in_ss_queue, ss_queue_head);
-				ss_queue_head->in_ss_queue = 0;
-								
-				if (likely(start_dl_timer(ss_queue_head, ss_queue_head->dl_boosted)))
-					ss_queue_head->dl_throttled = 1;
-				else
-					enqueue_task_dl(rq, dl_task_of(ss_queue_head), ENQUEUE_REPLENISH);
-
-				if (!is_leftmost(dl_task_of(ss_queue_head), &rq->dl))
-					resched_curr(rq);
-			}
-		}
-	}
+	update_ss_queue(rq, dl_se, delta_exec);
 	
 	dl_se->runtime -= dl_se->dl_yielded ? 0 : delta_exec;
 	if (dl_runtime_exceeded(rq, dl_se)) {
@@ -1035,15 +1052,6 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	struct task_struct *pi_task = rt_mutex_get_top_task(p);
 	struct sched_dl_entity *pi_se = &p->dl;
 	
-	if (p->dl.in_ss_queue) {
-		// Remove task from SS_QUEUE
-		printk(KERN_DEBUG"ss_queue:enqueue_task_dl, removING task from queue\n");
-		// The task is self suspended, so, place it into the SS_QUEUE
-		dl_ss_queue_remove(p->dl.in_ss_queue, &p->dl);
-		p->dl.in_ss_queue = 0;
-		printk(KERN_DEBUG"ss_queue:enqueue_task_dl, removED task from queue\n");
-	}
-	
 	/*
 	 * Use the scheduling parameters of the top pi-waiter
 	 * task if we have one and its (relative) deadline is
@@ -1073,6 +1081,19 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	if (p->dl.dl_throttled)
 		return;
 
+	if (p->dl.in_ss_queue) {
+		// Remove task from SS_QUEUE
+#ifndef SILENT_PRINTK
+		printk(KERN_DEBUG"ss_queue:enqueue_task_dl, removING task from queue\n");
+#endif
+		// The task is self suspended, so, place it into the SS_QUEUE
+		dl_ss_queue_remove(p->dl.in_ss_queue, &p->dl);
+		p->dl.in_ss_queue = 0;
+#ifndef SILENT_PRINTK
+		printk(KERN_DEBUG"ss_queue:enqueue_task_dl, removED task from queue\n");
+#endif
+	}
+	
 	enqueue_dl_entity(&p->dl, pi_se, flags);
 
 	if (!task_current(rq, p) && p->nr_cpus_allowed > 1)
@@ -1081,23 +1102,7 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 
 static void __dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 {
-	if (!dl_runtime_exceeded(rq, &p->dl)) {
-		printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, exceeded, flags: [ %d ]\n", flags);
-		if (flags & 1) {
-			int i;
-			
-			if (!p->dl.in_ss_queue) {
-				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, SS detected\n");
-				// The task is self suspended, so, place it into the SS_QUEUE
-				p->dl.in_ss_queue = this_ss_queue();
-				dl_ss_queue_insert(p->dl.in_ss_queue, &p->dl);
-				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, INSERTED\n");
-			}
-		
-			for (i=0; i<num_online_cpus(); ++i)
-				dl_ss_queue_print_ordered(cpu_ss_queue(i));
-		}
-	}
+	
 	dequeue_dl_entity(&p->dl);
 	dequeue_pushable_dl_task(rq, p);
 }
@@ -1106,6 +1111,34 @@ static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 {
 	update_curr_dl(rq);
 	__dequeue_task_dl(rq, p, flags);
+	
+	if (!dl_runtime_exceeded(rq, &p->dl)) {
+#ifndef SILENT_PRINTK
+		printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, exceeded, flags: [ %d ]\n", flags);
+#endif
+		if (flags & 1) {
+#ifndef SILENT_PRINTK
+			int i;
+#endif
+			if (!p->dl.in_ss_queue) {
+#ifndef SILENT_PRINTK
+				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, SS detected\n");
+#endif
+				// The task is self suspended, so, place it into the SS_QUEUE
+				p->dl.in_ss_queue = this_ss_queue();
+				if (dl_ss_queue_insert(p->dl.in_ss_queue, &p->dl) < 0)
+					p->dl.in_ss_queue = 0;
+				
+#ifndef SILENT_PRINTK
+				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, INSERTED\n");
+#endif
+			}
+#ifndef SILENT_PRINTK
+			for (i=0; i<num_online_cpus(); ++i)
+				dl_ss_queue_print_ordered(cpu_ss_queue(i));
+#endif
+		}
+	}
 }
 
 /*
@@ -1324,9 +1357,18 @@ static void task_dead_dl(struct task_struct *p)
 	struct hrtimer *timer = &p->dl.dl_timer;
 	struct dl_bw *dl_b = dl_bw_of(task_cpu(p));
 
+	struct ss_queue * ss_q = p->dl.in_ss_queue;
+	
+#ifndef SILENT_PRINTK
 	printk(KERN_DEBUG"ss_queue:task_dead_dl, removing task\n");
-	dl_ss_queue_remove(p->dl.in_ss_queue, &p->dl);
-	p->dl.in_ss_queue = 0;
+#endif
+	if (ss_q) {
+	  dl_ss_queue_remove(ss_q, &p->dl);
+	  p->dl.in_ss_queue = 0;
+	}
+	
+	//dl_ss_queue_print_ordered(ss_q);
+	
 	/*
 	 * Since we are TASK_DEAD we won't slip out of the domain!
 	 */
