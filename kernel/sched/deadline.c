@@ -134,7 +134,7 @@ static void dl_ss_queue_print_ordered(struct ss_queue *ss_queue)
 
 void dl_ss_queue_testbench(void)
 {
-#if 1
+#if 0
 	unsigned int i, j;
 	static struct sched_dl_entity data[100];
 	unsigned int max_j = 10;
@@ -687,7 +687,7 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 again:
 	rq = task_rq(p);
 	raw_spin_lock(&rq->lock);
-
+	
 	if (rq != task_rq(p)) {
 		/* Task was moved, retrying. */
 		raw_spin_unlock(&rq->lock);
@@ -715,6 +715,15 @@ again:
 	update_rq_clock(rq);
 	dl_se->dl_throttled = 0;
 	dl_se->dl_yielded = 0;
+	
+	// D-transition
+	if (dl_se->in_ss_queue && dl_se->dl_blocked) {
+		dl_ss_queue_insert(dl_se->in_ss_queue, dl_se);
+		goto unlock;
+	}
+	
+	dl_se->in_ss_queue = 0;
+	
 	if (task_on_rq_queued(p)) {
 		enqueue_task_dl(rq, p, ENQUEUE_REPLENISH);
 		if (dl_task(rq->curr))
@@ -781,11 +790,14 @@ static void update_ss_queue(struct rq *rq, struct sched_dl_entity *dl_se, u64 de
 				trace_sched_dl_ss_queue_overbudget(ss_queue_head);
 				
 				dl_ss_queue_remove(ss_queue_head->in_ss_queue, ss_queue_head);
-				ss_queue_head->in_ss_queue = 0;
+				//ss_queue_head->in_ss_queue = 0;
 								
-				if (likely(start_dl_timer(ss_queue_head, ss_queue_head->dl_boosted)))
-					ss_queue_head->dl_throttled = 1;
-				//else
+				if (likely(start_dl_timer(ss_queue_head, ss_queue_head->dl_boosted))) {
+					//ss_queue_head->dl_throttled = 1;
+					//ss_queue_head->in_ss_queue = 0;
+				} else {
+					dl_ss_queue_insert(ss_queue_head->in_ss_queue, ss_queue_head);
+				}
 				//	enqueue_task_dl(rq, dl_task_of(ss_queue_head), ENQUEUE_REPLENISH);
 
 				//if (!is_leftmost(dl_task_of(ss_queue_head), &rq->dl))
@@ -1078,8 +1090,11 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	 * its rq, the bandwidth timer callback (which clearly has not
 	 * run yet) will take care of this.
 	 */
-	if (p->dl.dl_throttled)
+	if (p->dl.dl_throttled) {
+		if (p->dl.in_ss_queue)
+			p->dl.dl_blocked = 0;
 		return;
+	}
 
 	if (p->dl.in_ss_queue) {
 		// Remove task from SS_QUEUE
@@ -1128,7 +1143,7 @@ static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 				p->dl.in_ss_queue = this_ss_queue();
 				if (dl_ss_queue_insert(p->dl.in_ss_queue, &p->dl) < 0)
 					p->dl.in_ss_queue = 0;
-				
+				p->dl.dl_blocked = 1;
 #ifndef SILENT_PRINTK
 				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, INSERTED\n");
 #endif
