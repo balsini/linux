@@ -684,6 +684,18 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 	struct task_struct *p = dl_task_of(dl_se);
 	struct rq *rq;
 	
+	// D-transition
+	if (dl_se->in_ss_queue) {
+		if (dl_se->dl_blocked) {
+			trace_sched_dl_ss_from_susp(dl_se);
+		
+			dl_ss_queue_insert(dl_se->in_ss_queue, dl_se);
+			
+			return HRTIMER_NORESTART;
+		}
+		dl_se->in_ss_queue = 0;
+	}
+	
 again:
 	rq = task_rq(p);
 	raw_spin_lock(&rq->lock);
@@ -693,7 +705,7 @@ again:
 		raw_spin_unlock(&rq->lock);
 		goto again;
 	}
-
+	
 	/*
 	 * We need to take care of several possible races here:
 	 *
@@ -716,15 +728,10 @@ again:
 	dl_se->dl_throttled = 0;
 	dl_se->dl_yielded = 0;
 	
-	// D-transition
-	if (dl_se->in_ss_queue && dl_se->dl_blocked) {
-		dl_ss_queue_insert(dl_se->in_ss_queue, dl_se);
-		goto unlock;
-	}
-	
-	dl_se->in_ss_queue = 0;
-	
 	if (task_on_rq_queued(p)) {
+		
+		trace_sched_dl_from_susp(p);
+		
 		enqueue_task_dl(rq, p, ENQUEUE_REPLENISH);
 		if (dl_task(rq->curr))
 			check_preempt_curr_dl(rq, p, 0);
@@ -787,7 +794,7 @@ static void update_ss_queue(struct rq *rq, struct sched_dl_entity *dl_se, u64 de
 				printk(KERN_DEBUG"update_curr_dl BUDGET FINISHED\n");
 #endif
 				
-				trace_sched_dl_ss_queue_overbudget(ss_queue_head);
+				trace_sched_dl_ss_to_susp(ss_queue_head);
 				
 				dl_ss_queue_remove(ss_queue_head->in_ss_queue, ss_queue_head);
 				//ss_queue_head->in_ss_queue = 0;
@@ -849,7 +856,9 @@ static void update_curr_dl(struct rq *rq)
 	
 	dl_se->runtime -= dl_se->dl_yielded ? 0 : delta_exec;
 	if (dl_runtime_exceeded(rq, dl_se)) {
-		trace_sched_dl_overbudget(dl_se);
+		
+		trace_sched_dl_to_susp(dl_se);
+		
 		__dequeue_task_dl(rq, curr, 0);
 		if (likely(start_dl_timer(dl_se, curr->dl.dl_boosted)))
 			dl_se->dl_throttled = 1;
@@ -1097,6 +1106,9 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	}
 
 	if (p->dl.in_ss_queue) {
+		
+		trace_sched_dl_from_ss(p);
+		
 		// Remove task from SS_QUEUE
 #ifndef SILENT_PRINTK
 		printk(KERN_DEBUG"ss_queue:enqueue_task_dl, removING task from queue\n");
@@ -1139,10 +1151,12 @@ static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 #ifndef SILENT_PRINTK
 				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, SS detected\n");
 #endif
+				
+				trace_sched_dl_to_ss(&p->dl);
+				
 				// The task is self suspended, so, place it into the SS_QUEUE
 				p->dl.in_ss_queue = this_ss_queue();
-				if (dl_ss_queue_insert(p->dl.in_ss_queue, &p->dl) < 0)
-					p->dl.in_ss_queue = 0;
+				dl_ss_queue_insert(p->dl.in_ss_queue, &p->dl);
 				p->dl.dl_blocked = 1;
 #ifndef SILENT_PRINTK
 				printk(KERN_DEBUG"ss_queue:__dequeue_task_dl, INSERTED\n");
