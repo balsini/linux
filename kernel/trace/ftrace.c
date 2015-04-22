@@ -468,7 +468,10 @@ struct ftrace_profile {
 	unsigned long			ip;
 	unsigned long			counter;
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
+	char				not_first_time;
 	unsigned long long		time;
+	unsigned long long		time_min;
+	unsigned long long		time_max;
 	unsigned long long		time_squared;
 #endif
 };
@@ -632,6 +635,10 @@ static int function_stat_show(struct seq_file *m, void *v)
 	trace_print_graph_duration(avg, &s);
 	trace_seq_puts(&s, "    ");
 	trace_print_graph_duration(stddev, &s);
+	trace_seq_puts(&s, "    ");
+	trace_print_graph_duration(rec->time_min, &s);
+	trace_seq_puts(&s, "    ");
+	trace_print_graph_duration(rec->time_max, &s);
 	trace_print_seq(m, &s);
 #endif
 	seq_putc(m, '\n');
@@ -901,6 +908,16 @@ static void profile_graph_return(struct ftrace_graph_ret *trace)
 	if (rec) {
 		rec->time += calltime;
 		rec->time_squared += calltime * calltime;
+		if (unlikely(!rec->not_first_time)) {
+			rec->not_first_time = 1;
+			
+			rec->time_max = calltime;
+			rec->time_min = calltime;
+		}
+		if (rec->time_min > calltime)
+			rec->time_min = calltime;
+		if (rec->time_max < calltime)
+			rec->time_max = calltime;
 	}
 
  out:
