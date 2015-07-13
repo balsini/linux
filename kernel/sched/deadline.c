@@ -19,7 +19,7 @@
 #include <linux/slab.h>
 #include <trace/events/sched.h>
 
-#define SILENT_PRINTK
+//#define SILENT_PRINTK
 
 /*
  * Inserts a new element in the SS_QUEUE
@@ -115,6 +115,7 @@ static void dl_ss_queue_remove(struct ss_queue *ss_queue, struct sched_dl_entity
 /*
  * Prints all the ss_queue elements
  */
+#ifndef SILENT_PRINTK
 static void dl_ss_queue_print_ordered(struct ss_queue *ss_queue)
 {
 	struct rb_node *this = rb_first(&ss_queue->rb_tree);
@@ -131,6 +132,7 @@ static void dl_ss_queue_print_ordered(struct ss_queue *ss_queue)
 	
 	printk(KERN_DEBUG"ss_queue_element PRINT END\n");
 }
+#endif
 
 void dl_ss_queue_testbench(void)
 {
@@ -249,11 +251,6 @@ void init_dl_rq(struct dl_rq *dl_rq, struct rq *rq)
 #else
 	init_dl_bw(&dl_rq->dl_bw);
 #endif
-}
-
-void init_dl_ss_queue(struct ss_queue *ss_queue)
-{
-	ss_queue->rb_tree = RB_ROOT;
 }
 
 #ifdef CONFIG_SMP
@@ -663,6 +660,115 @@ static int start_dl_timer(struct sched_dl_entity *dl_se, bool boosted)
 	return hrtimer_active(&dl_se->dl_timer);
 }
 
+static int start_ss_queue_timer(struct ss_queue *ss, int forwarded);
+
+static enum hrtimer_restart ss_queue_timer_elapsed(struct hrtimer *timer)
+{
+	struct sched_dl_entity *ss_queue_head;
+	
+#ifndef SILENT_PRINTK
+	printk(KERN_DEBUG"SS_QUEUE: HRTIMER elapsed\n");
+#endif	
+	if (!this_ss_queue()->rb_leftmost) {
+#ifndef SILENT_PRINTK
+		printk(KERN_DEBUG"SS_QUEUE: No SS_QUEUE head for hrtimer\n");
+#endif
+		
+		return HRTIMER_NORESTART;
+	}
+	
+	ss_queue_head = container_of(this_ss_queue()->rb_leftmost,
+					struct sched_dl_entity,
+					rb_ss_queue_node);
+	
+	//trace_sched_dl_ss_to_susp(ss_queue_head);
+	
+	if (ss_queue_head->in_ss_queue) {
+		dl_ss_queue_remove(ss_queue_head->in_ss_queue, ss_queue_head);
+		//ss_queue_head->in_ss_queue = 0;
+		
+		if (likely(start_dl_timer(ss_queue_head, ss_queue_head->dl_boosted))) {
+			//ss_queue_head->dl_throttled = 1;
+			//ss_queue_head->in_ss_queue = 0;
+#ifndef SILENT_PRINTK
+			printk(KERN_DEBUG"SS_QUEUE: hrtimer activated for replenishing budget\n");
+#endif
+			
+		} else {
+			dl_ss_queue_insert(ss_queue_head->in_ss_queue, ss_queue_head);
+		}
+	}
+	
+	if (this_ss_queue()->rb_leftmost) {
+#ifndef SILENT_PRINTK
+		printk(KERN_DEBUG"SS_QUEUE: HRTIMER newly activated\n");
+#endif
+		
+		start_ss_queue_timer(this_ss_queue(), 1);
+		return HRTIMER_RESTART;
+	}
+	
+	return HRTIMER_NORESTART;
+}
+
+void init_dl_ss_queue(struct ss_queue *ss_queue)
+{
+	struct hrtimer *timer = &ss_queue->ss_timer;
+	
+	hrtimer_init(timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	timer->function = ss_queue_timer_elapsed;
+	
+	ss_queue->rb_tree = RB_ROOT;
+}
+
+static int start_ss_queue_timer(struct ss_queue *ss, int forwarded)
+{	
+	//ktime_t now, act;
+	//ktime_t soft, hard;
+	//unsigned long range;
+	//s64 delta;
+	
+	struct hrtimer *timer = &ss->ss_timer;
+	struct sched_dl_entity *p = container_of(ss->rb_leftmost,
+						struct sched_dl_entity,
+						rb_ss_queue_node);
+#ifndef SILENT_PRINTK
+	printk(KERN_DEBUG"SS_QUEUE: activating HRTIMER\n");
+#endif
+	
+	ss->ss_timer_period = ktime_set(0, p->runtime);
+	
+	/*
+	now = hrtimer_cb_get_time(timer);
+	act = ns_to_ktime(p->runtime);
+	act = ktime_add_ns(act, ktime_to_ns(now));
+	
+	delta = ktime_to_ns(now) - rq_clock(this_rq());
+	act = ktime_add_ns(act, delta);
+
+	if (ktime_us_delta(act, now) < 0)
+		return 0;
+
+	hrtimer_set_expires(timer, act);
+
+	soft = hrtimer_get_softexpires(timer);
+	hard = hrtimer_get_expires(timer);
+	range = ktime_to_ns(ktime_sub(hard, soft));
+	__hrtimer_start_range_ns(timer, soft,
+				 range, HRTIMER_MODE_ABS, 0);
+	
+	return hrtimer_active(timer);
+	*/
+	
+	if (forwarded) {
+		return hrtimer_forward(timer, timer->base->get_time(), ss->ss_timer_period);
+	} else {
+		return hrtimer_start(timer,
+			ss->ss_timer_period,
+			HRTIMER_MODE_REL);
+	}
+}
+
 /*
  * This is the bandwidth enforcement timer callback. If here, we know
  * a task is not on its dl_rq, since the fact that the timer was running
@@ -776,7 +882,7 @@ static void update_ss_queue(struct rq *rq, struct sched_dl_entity *dl_se, u64 de
 		
 		ss_queue_head = container_of(this_ss_queue()->rb_leftmost,
 					struct sched_dl_entity,
-				rb_ss_queue_node);
+					rb_ss_queue_node);
 		
 		// The budget is consumed only if the running task has lower priority
 		// than the head of the SS_QUEUE
@@ -1073,6 +1179,33 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	struct task_struct *pi_task = rt_mutex_get_top_task(p);
 	struct sched_dl_entity *pi_se = &p->dl;
 	
+	struct sched_dl_entity *ss_queue_head;
+	//u64 remaining_nsec;
+	ktime_t remaining;
+	
+	// If there is at leas one task scheduled by SCHED_DEADLINE,
+	// the timer associated to the SS_QUEUE must be disabled
+	
+	if (hrtimer_active(&this_ss_queue()->ss_timer)) {
+		
+		// If the timer was active, then subtract the partial budget
+		// from the SS_QUEUE task
+		
+		ss_queue_head = container_of(this_ss_queue()->rb_leftmost,
+						struct sched_dl_entity,
+						rb_ss_queue_node);
+		
+		remaining = hrtimer_get_remaining(&this_ss_queue()->ss_timer);
+		
+		ss_queue_head->runtime -= ktime_to_ns(this_ss_queue()->ss_timer_period) - ktime_to_ns(remaining);
+		
+#ifndef SILENT_PRINTK
+		printk(KERN_DEBUG"SS_QUEUE: partial budget consumed: [%lld]\n", ktime_to_ns(remaining));
+#endif
+		
+		hrtimer_cancel(&this_ss_queue()->ss_timer);
+	}
+	
 	/*
 	 * Use the scheduling parameters of the top pi-waiter
 	 * task if we have one and its (relative) deadline is
@@ -1113,7 +1246,6 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 #ifndef SILENT_PRINTK
 		printk(KERN_DEBUG"ss_queue:enqueue_task_dl, removING task from queue\n");
 #endif
-		// The task is self suspended, so, place it into the SS_QUEUE
 		dl_ss_queue_remove(p->dl.in_ss_queue, &p->dl);
 		p->dl.in_ss_queue = 0;
 #ifndef SILENT_PRINTK
@@ -1167,6 +1299,19 @@ static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 				dl_ss_queue_print_ordered(cpu_ss_queue(i));
 #endif
 		}
+	}
+	
+	// Check if the SS_QUEUE is empty and, if is, start
+	// the timer for consuming budget
+	
+	//printk(KERN_DEBUG"SS_QUEUE: remaining tasks: %ld\n", rq->dl.dl_nr_running);
+	if (rq->dl.dl_nr_running == 0) {
+		//printk(KERN_DEBUG"SS_QUEUE: no more DEADLINE tasks\n");
+		if (this_ss_queue()->rb_leftmost) {
+			//printk(KERN_DEBUG"SS_QUEUE: and SS_QUEUE not empty\n");
+			start_ss_queue_timer(this_ss_queue(), 0);
+		}
+		
 	}
 }
 
@@ -1392,8 +1537,8 @@ static void task_dead_dl(struct task_struct *p)
 	printk(KERN_DEBUG"ss_queue:task_dead_dl, removing task\n");
 #endif
 	if (ss_q) {
-	  dl_ss_queue_remove(ss_q, &p->dl);
-	  p->dl.in_ss_queue = 0;
+		dl_ss_queue_remove(ss_q, &p->dl);
+		p->dl.in_ss_queue = 0;
 	}
 	
 	//dl_ss_queue_print_ordered(ss_q);
