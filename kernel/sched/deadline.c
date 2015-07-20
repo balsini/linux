@@ -19,11 +19,14 @@
 #include <linux/slab.h>
 #include <trace/events/sched.h>
 
-//#define SILENT_PRINTK
+#define SILENT_PRINTK
 
 /*
  * Inserts a new element in the SS_QUEUE
  */
+
+static int start_ss_queue_timer(struct ss_queue *ss, int forwarded);
+
 static int dl_ss_queue_insert(struct ss_queue *ss_queue, struct sched_dl_entity *data)
 {
 	struct rb_node **new = &(ss_queue->rb_tree.rb_node), *parent = NULL;
@@ -660,8 +663,6 @@ static int start_dl_timer(struct sched_dl_entity *dl_se, bool boosted)
 	return hrtimer_active(&dl_se->dl_timer);
 }
 
-static int start_ss_queue_timer(struct ss_queue *ss, int forwarded);
-
 static enum hrtimer_restart ss_queue_timer_elapsed(struct hrtimer *timer)
 {
 	struct sched_dl_entity *ss_queue_head;
@@ -673,7 +674,6 @@ static enum hrtimer_restart ss_queue_timer_elapsed(struct hrtimer *timer)
 #ifndef SILENT_PRINTK
 		printk(KERN_DEBUG"SS_QUEUE: No SS_QUEUE head for hrtimer\n");
 #endif
-		
 		return HRTIMER_NORESTART;
 	}
 	
@@ -698,7 +698,7 @@ static enum hrtimer_restart ss_queue_timer_elapsed(struct hrtimer *timer)
 			dl_ss_queue_insert(ss_queue_head->in_ss_queue, ss_queue_head);
 		}
 	}
-	
+		
 	if (this_ss_queue()->rb_leftmost) {
 #ifndef SILENT_PRINTK
 		printk(KERN_DEBUG"SS_QUEUE: HRTIMER newly activated\n");
@@ -729,9 +729,25 @@ static int start_ss_queue_timer(struct ss_queue *ss, int forwarded)
 	//s64 delta;
 	
 	struct hrtimer *timer = &ss->ss_timer;
-	struct sched_dl_entity *p = container_of(ss->rb_leftmost,
-						struct sched_dl_entity,
-						rb_ss_queue_node);
+	struct sched_dl_entity *p;
+	
+	if (!ss->rb_leftmost) {
+#ifndef SILENT_PRINTK
+		printk(KERN_DEBUG"SS_QUEUE: no head to activate timer\n");
+#endif
+		return -1;
+	}
+	
+	if (hrtimer_active(timer)) {
+#ifndef SILENT_PRINTK
+		printk(KERN_DEBUG"SS_QUEUE: timer already active\n");
+#endif
+		return -1;
+	}
+	
+	p = container_of(ss->rb_leftmost,
+			struct sched_dl_entity,
+			rb_ss_queue_node);
 #ifndef SILENT_PRINTK
 	printk(KERN_DEBUG"SS_QUEUE: activating HRTIMER\n");
 #endif
@@ -1307,11 +1323,8 @@ static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	//printk(KERN_DEBUG"SS_QUEUE: remaining tasks: %ld\n", rq->dl.dl_nr_running);
 	if (rq->dl.dl_nr_running == 0) {
 		//printk(KERN_DEBUG"SS_QUEUE: no more DEADLINE tasks\n");
-		if (this_ss_queue()->rb_leftmost) {
-			//printk(KERN_DEBUG"SS_QUEUE: and SS_QUEUE not empty\n");
-			start_ss_queue_timer(this_ss_queue(), 0);
-		}
-		
+		//printk(KERN_DEBUG"SS_QUEUE: and SS_QUEUE not empty\n");
+		start_ss_queue_timer(this_ss_queue(), 0);
 	}
 }
 
