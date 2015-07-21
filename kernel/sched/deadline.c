@@ -663,6 +663,12 @@ static int start_dl_timer(struct sched_dl_entity *dl_se, bool boosted)
 	return hrtimer_active(&dl_se->dl_timer);
 }
 
+/*
+ * If this timer triggers, then the head of the SS_QUEUE
+ * exhausted its budget.
+ * The head of the SS_QUEUE must then be removed and inserted
+ * in the list of the suspended processes.
+ */
 static enum hrtimer_restart ss_queue_timer_elapsed(struct hrtimer *timer)
 {
 	struct sched_dl_entity *ss_queue_head;
@@ -1207,17 +1213,19 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 		// If the timer was active, then subtract the partial budget
 		// from the SS_QUEUE task
 		
-		ss_queue_head = container_of(this_ss_queue()->rb_leftmost,
-						struct sched_dl_entity,
-						rb_ss_queue_node);
-		
-		remaining = hrtimer_get_remaining(&this_ss_queue()->ss_timer);
-		
-		ss_queue_head->runtime -= ktime_to_ns(this_ss_queue()->ss_timer_period) - ktime_to_ns(remaining);
-		
-#ifndef SILENT_PRINTK
-		printk(KERN_DEBUG"SS_QUEUE: partial budget consumed: [%lld]\n", ktime_to_ns(remaining));
-#endif
+		if (this_ss_queue()->rb_leftmost) {
+			ss_queue_head = container_of(this_ss_queue()->rb_leftmost,
+							struct sched_dl_entity,
+							rb_ss_queue_node);
+			
+			remaining = hrtimer_get_remaining(&this_ss_queue()->ss_timer);
+			
+			ss_queue_head->runtime -= ktime_to_ns(this_ss_queue()->ss_timer_period) - ktime_to_ns(remaining);
+			
+	#ifndef SILENT_PRINTK
+			printk(KERN_DEBUG"SS_QUEUE: partial budget consumed: [%lld]\n", ktime_to_ns(remaining));
+	#endif
+		}
 		
 		hrtimer_cancel(&this_ss_queue()->ss_timer);
 	}
@@ -1311,8 +1319,8 @@ static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 #endif
 			}
 #ifndef SILENT_PRINTK
-			for (i=0; i<num_online_cpus(); ++i)
-				dl_ss_queue_print_ordered(cpu_ss_queue(i));
+			//for (i=0; i<num_online_cpus(); ++i)
+			//	dl_ss_queue_print_ordered(cpu_ss_queue(i));
 #endif
 		}
 	}
