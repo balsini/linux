@@ -675,6 +675,8 @@ struct ss_queue {
 	
 	struct rb_root rb_tree;
 	struct rb_node *rb_leftmost;
+	
+	u64 idle_starting_time;
 };
 
 static inline int cpu_of(struct rq *rq)

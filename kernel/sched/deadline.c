@@ -19,7 +19,7 @@
 #include <linux/slab.h>
 #include <trace/events/sched.h>
 
-#define SILENT_PRINTK
+//#define SILENT_PRINTK
 
 /*
  * Inserts a new element in the SS_QUEUE
@@ -684,18 +684,6 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 	struct task_struct *p = dl_task_of(dl_se);
 	struct rq *rq;
 	
-	// D-transition
-	if (dl_se->in_ss_queue) {
-		if (dl_se->dl_blocked) {
-			trace_sched_dl_ss_from_susp(dl_se);
-		
-			dl_ss_queue_insert(dl_se->in_ss_queue, dl_se);
-			
-			return HRTIMER_NORESTART;
-		}
-		dl_se->in_ss_queue = 0;
-	}
-	
 again:
 	rq = task_rq(p);
 	raw_spin_lock(&rq->lock);
@@ -725,6 +713,19 @@ again:
 
 	sched_clock_tick();
 	update_rq_clock(rq);
+	
+	// D-transition
+	if (dl_se->in_ss_queue) {
+		if (dl_se->dl_blocked) {
+			trace_sched_dl_ss_from_susp(dl_se);
+		
+			dl_ss_queue_insert(dl_se->in_ss_queue, dl_se);
+			
+			goto unlock;
+		}
+		dl_se->in_ss_queue = 0;
+	}
+	
 	dl_se->dl_throttled = 0;
 	dl_se->dl_yielded = 0;
 	
@@ -800,11 +801,24 @@ static void update_ss_queue(struct rq *rq, struct sched_dl_entity *dl_se, u64 de
 				//ss_queue_head->in_ss_queue = 0;
 								
 				if (likely(start_dl_timer(ss_queue_head, ss_queue_head->dl_boosted))) {
-					//ss_queue_head->dl_throttled = 1;
-					//ss_queue_head->in_ss_queue = 0;
+					//dl_se->dl_throttled = 1;
 				} else {
+					//enqueue_task_dl(rq,
+					//		dl_task_of(ss_queue_head),
+					//		ENQUEUE_REPLENISH);
+					while (ss_queue_head->runtime <= 0) {
+						ss_queue_head->deadline += ss_queue_head->dl_period;
+						ss_queue_head->runtime += ss_queue_head->dl_runtime;
+					}
+					if (dl_time_before(ss_queue_head->deadline, rq_clock(rq))) {
+						printk_deferred_once("sched: DL replenish lagged to much\n");
+						ss_queue_head->deadline = rq_clock(rq) + ss_queue_head->dl_deadline;
+						ss_queue_head->runtime = ss_queue_head->dl_runtime;
+					}
+					
 					dl_ss_queue_insert(ss_queue_head->in_ss_queue, ss_queue_head);
 				}
+				
 				//	enqueue_task_dl(rq, dl_task_of(ss_queue_head), ENQUEUE_REPLENISH);
 
 				//if (!is_leftmost(dl_task_of(ss_queue_head), &rq->dl))
@@ -1094,6 +1108,66 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	}
 
 	/*
+	 * Updating budgets in the case of quitting from an idle situation
+	 */
+	if (this_ss_queue()->idle_starting_time != 0) {
+		struct rb_node *node;
+		s64 delta;
+		s64 residual;
+		
+		delta = rq_clock_task(rq) - this_ss_queue()->idle_starting_time;
+		this_ss_queue()->idle_starting_time = 0;
+		
+		node = this_ss_queue()->rb_leftmost;
+		while (node && delta > 0) {
+			struct sched_dl_entity *this = container_of(node,
+						struct sched_dl_entity,
+						rb_ss_queue_node);
+			
+			residual = delta - this->runtime;
+			if (residual > 0) {
+				this->runtime = 0;
+				delta = residual;
+			} else {
+				this->runtime -= delta;
+				delta = 0;
+			}
+			
+			node = rb_next(node);
+		}
+		
+		node = this_ss_queue()->rb_leftmost;
+		while (node) {
+			struct sched_dl_entity *this = container_of(node,
+							struct sched_dl_entity,
+							rb_ss_queue_node);
+		
+			if (this->runtime > 0)
+				break;
+			
+			dl_ss_queue_remove(this_ss_queue(), this);
+			
+			if (likely(start_dl_timer(this, this->dl_boosted))) {
+				//dl_se->dl_throttled = 1;
+			} else {
+				while (this->runtime <= 0) {
+					this->deadline += this->dl_period;
+					this->runtime += this->dl_runtime;
+				}
+				if (dl_time_before(this->deadline, rq_clock(rq))) {
+					printk_deferred_once("sched: DL replenish lagged to much\n");
+					this->deadline = rq_clock(rq) + this->dl_deadline;
+					this->runtime = this->dl_runtime;
+				}
+				
+				dl_ss_queue_insert(this_ss_queue(), this);
+			}
+			
+			node = this_ss_queue()->rb_leftmost;
+		}
+	}
+	
+	/*
 	 * If p is throttled, we do nothing. In fact, if it exhausted
 	 * its budget it needs a replenishment and, since it now is on
 	 * its rq, the bandwidth timer callback (which clearly has not
@@ -1104,9 +1178,8 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 			p->dl.dl_blocked = 0;
 		return;
 	}
-
+	
 	if (p->dl.in_ss_queue) {
-		
 		trace_sched_dl_from_ss(p);
 		
 		// Remove task from SS_QUEUE
@@ -1167,6 +1240,12 @@ static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 				dl_ss_queue_print_ordered(cpu_ss_queue(i));
 #endif
 		}
+	}
+	
+	if (rq->dl.dl_nr_running == 0) {
+		this_ss_queue()->idle_starting_time = rq_clock_task(rq);
+	} else {
+		this_ss_queue()->idle_starting_time = 0;
 	}
 }
 
