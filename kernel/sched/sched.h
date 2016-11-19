@@ -548,6 +548,12 @@ struct dl_rq {
 	 * task blocks
 	 */
 	u64 running_bw;
+
+	/*
+	 * Inverse of the fraction of CPU utilization that can be reclaimed
+	 * by the GRUB algorithm.
+	 */
+	u64 deadline_bw_inv;
 };
 
 #ifdef CONFIG_SMP

@@ -193,6 +193,10 @@ void init_dl_rq(struct dl_rq *dl_rq)
 #else
 	init_dl_bw(&dl_rq->dl_bw);
 #endif
+	if (global_rt_runtime() == RUNTIME_INF)
+		dl_rq->deadline_bw_inv = 1 << 8;
+	else
+		dl_rq->deadline_bw_inv = to_ratio(global_rt_runtime(), global_rt_period()) >> 12;
 }
 
 #ifdef CONFIG_SMP
@@ -933,7 +937,7 @@ extern bool sched_rt_bandwidth_account(struct rt_rq *rt_rq);
  */
 u64 grub_reclaim(u64 delta, struct rq *rq)
 {
-	return (delta * rq->dl.running_bw) >> 20;
+	return (delta * rq->dl.running_bw * rq->dl.deadline_bw_inv) >> 20 >> 8;
 }
 
 /*
