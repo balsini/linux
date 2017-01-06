@@ -559,12 +559,6 @@ struct dl_rq {
 	 * runqueue (inactive utilization = this_bw - running_bw).
 	 */
 	u64 this_bw;
-
-	/*
-	 * Inverse of the fraction of CPU utilization that can be reclaimed
-	 * by the GRUB algorithm.
-	 */
-	u64 deadline_bw_inv;
 };
 
 #ifdef CONFIG_SMP

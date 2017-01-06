@@ -222,10 +222,6 @@ void init_dl_rq(struct dl_rq *dl_rq)
 #else
 	init_dl_bw(&dl_rq->dl_bw);
 #endif
-	if (global_rt_runtime() == RUNTIME_INF)
-		dl_rq->deadline_bw_inv = 1 << 8;
-	else
-		dl_rq->deadline_bw_inv = to_ratio(global_rt_runtime(), global_rt_period()) >> 12;
 }
 
 #ifdef CONFIG_SMP
@@ -959,14 +955,23 @@ extern bool sched_rt_bandwidth_account(struct rt_rq *rt_rq);
 /*
  * This function implements the GRUB accounting rule:
  * according to the GRUB reclaiming algorithm, the runtime is
- * not decreased as "dq = -dt", but as "dq = -Uact dt", where
- * Uact is the (per-runqueue) active utilization.
- * Since rq->dl.running_bw contains Uact * 2^20, the result
- * has to be shifted right by 20.
+ * not decreased as "dq = -dt", but as "dq = (1 - Uinact) dt", where
+ * Uinact is the (per-runqueue) inactive utilization, computed as the
+ * difference between the "total runqueue utilization" and the runqueue
+ * active utilization.
+ * Since rq->dl.running_bw and rq->dl.this_bw contain utilizations
+ * multiplied by 2^20, the result has to be shifted right by 20.
  */
-u64 grub_reclaim(u64 delta, struct rq *rq)
+u64 grub_reclaim(u64 delta, struct rq *rq, u64 u)
 {
-	return (delta * rq->dl.running_bw * rq->dl.deadline_bw_inv) >> 20 >> 8;
+	u64 u_act;
+
+	if (rq->dl.this_bw - rq->dl.running_bw > (1 << 20) - u)
+		u_act = u;
+	else
+		u_act = (1 << 20) - rq->dl.this_bw + rq->dl.running_bw;
+
+	return (delta * u_act) >> 20;
 }
 
 /*
@@ -1012,7 +1017,7 @@ static void update_curr_dl(struct rq *rq)
 	sched_rt_avg_update(rq, delta_exec);
 
 	if (unlikely(dl_se->flags & SCHED_FLAG_RECLAIM))
-		delta_exec = grub_reclaim(delta_exec, rq);
+		delta_exec = grub_reclaim(delta_exec, rq, curr->dl.dl_bw);
 	dl_se->runtime -= delta_exec;
 
 throttle:

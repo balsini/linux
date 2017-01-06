@@ -8522,10 +8522,6 @@ static void sched_dl_do_global(void)
 		raw_spin_unlock_irqrestore(&dl_b->lock, flags);
 
 		rcu_read_unlock_sched();
-		if (dl_b->bw == -1)
-			cpu_rq(cpu)->dl.deadline_bw_inv = 1 << 8;
-		else
-			cpu_rq(cpu)->dl.deadline_bw_inv = to_ratio(global_rt_runtime(), global_rt_period()) >> 12;
 	}
 }
 
