@@ -46,8 +46,8 @@ struct sugov_policy {
 	s64 min_rate_limit_ns;
 	s64 up_rate_delay_ns;
 	s64 down_rate_delay_ns;
-	unsigned int next_freq;
 	unsigned int cached_raw_freq;
+	unsigned int next_freq;
 
 	/* The next fields are only needed if fast switch cannot be used. */
 	struct irq_work irq_work;
@@ -705,6 +705,7 @@ static int sugov_start(struct cpufreq_policy *policy)
 		sg_policy->tunables->down_rate_limit_us * NSEC_PER_USEC;
 	update_min_rate_limit_us(sg_policy);
 	sg_policy->last_freq_update_time = 0;
+	sg_policy->cached_raw_freq = 0;
 	sg_policy->next_freq = UINT_MAX;
 	sg_policy->work_in_progress = false;
 	sg_policy->need_freq_update = false;
