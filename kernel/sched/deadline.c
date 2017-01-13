@@ -107,7 +107,7 @@ static void task_non_contending(struct task_struct *p)
 	 * If this is a non-deadline task that has been boosted,
 	 * do nothing
 	 */
-	if (dl_se->dl_runtime == 0)
+	if (dl_se->dl_runtime == 0 || dl_entity_is_special(dl_se))
 		return;
 
 	WARN_ON(hrtimer_active(&dl_se->inactive_timer));
@@ -1023,13 +1023,18 @@ static void update_curr_dl(struct rq *rq)
 
 	sched_rt_avg_update(rq, delta_exec);
 
-	if (unlikely(dl_se->flags & SCHED_FLAG_RECLAIM))
-		delta_exec = grub_reclaim(delta_exec, rq, curr->dl.dl_bw);
-	scale_freq = arch_scale_freq_capacity(NULL, cpu);
-	scale_cpu = arch_scale_cpu_capacity(NULL, cpu);
+	if (unlikely(dl_entity_is_special(dl_se)))
+		return;
 
-	scaled_delta_exec = cap_scale(delta_exec, scale_freq);
-	scaled_delta_exec = cap_scale(scaled_delta_exec, scale_cpu);
+	if (unlikely(dl_se->flags & SCHED_FLAG_RECLAIM)) {
+		scaled_delta_exec = grub_reclaim(delta_exec, rq, curr->dl.dl_bw);
+	} else {
+		scale_freq = arch_scale_freq_capacity(NULL, cpu);
+		scale_cpu = arch_scale_cpu_capacity(NULL, cpu);
+	
+		scaled_delta_exec = cap_scale(delta_exec, scale_freq);
+		scaled_delta_exec = cap_scale(scaled_delta_exec, scale_cpu);
+	}
 	dl_se->runtime -= scaled_delta_exec;
 
 throttle:

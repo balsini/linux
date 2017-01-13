@@ -143,13 +143,19 @@ static inline int task_has_dl_policy(struct task_struct *p)
 
 #define cap_scale(v, s) ((v)*(s) >> SCHED_CAPACITY_SHIFT)
 
+static inline int dl_entity_is_special(struct sched_dl_entity *dl_se)
+{
+	return dl_se->flags & SCHED_FLAG_SPECIAL;
+}
+
 /*
  * Tells if entity @a should preempt entity @b.
  */
 static inline bool
 dl_entity_preempt(struct sched_dl_entity *a, struct sched_dl_entity *b)
 {
-	return dl_time_before(a->deadline, b->deadline);
+	return dl_entity_is_special(a) ||
+	       dl_time_before(a->deadline, b->deadline);
 }
 
 /*
