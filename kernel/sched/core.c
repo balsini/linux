@@ -2558,9 +2558,6 @@ static inline int dl_bw_cpus(int i)
  * allocated bandwidth to reflect the new situation.
  *
  * This function is called while holding p's rq->lock.
- *
- * XXX we should delay bw change until the task's 0-lag point, see
- * __setparam_dl().
  */
 static int dl_overflow(struct task_struct *p, int policy,
 		       const struct sched_attr *attr)
@@ -2585,15 +2582,28 @@ static int dl_overflow(struct task_struct *p, int policy,
 	cpus = dl_bw_cpus(task_cpu(p));
 	if (dl_policy(policy) && !task_has_dl_policy(p) &&
 	    !__dl_overflow(dl_b, cpus, 0, new_bw)) {
+		if (hrtimer_active(&p->dl.inactive_timer))
+			__dl_clear(dl_b, p->dl.dl_bw);
 		__dl_add(dl_b, new_bw);
 		err = 0;
 	} else if (dl_policy(policy) && task_has_dl_policy(p) &&
 		   !__dl_overflow(dl_b, cpus, p->dl.dl_bw, new_bw)) {
+		/*
+		 * XXX this is slightly incorrect: when the task
+		 * utilization decreases, we should delay the total
+		 * utilization change until the task's 0-lag point.
+		 * But this would require to set the task's "inactive
+		 * timer" when the task is not inactive.
+		 */
 		__dl_clear(dl_b, p->dl.dl_bw);
 		__dl_add(dl_b, new_bw);
 		err = 0;
 	} else if (!dl_policy(policy) && task_has_dl_policy(p)) {
-		__dl_clear(dl_b, p->dl.dl_bw);
+		/*
+		 * Do not decrease the total deadline utilization here,
+		 * switched_from_dl() will take care to do it at the correct
+		 * (0-lag) time.
+		 */
 		err = 0;
 	}
 	raw_spin_unlock(&dl_b->lock);
