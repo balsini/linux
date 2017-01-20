@@ -132,7 +132,7 @@ static void task_non_contending(struct task_struct *p)
 			if (p->state == TASK_DEAD)
 				sub_rq_bw(&p->dl, &rq->dl);
 			raw_spin_lock(&dl_b->lock);
-			__dl_clear(dl_b, p->dl.dl_bw);
+			__dl_clear(dl_b, p->dl.dl_bw, dl_bw_cpus(task_cpu(p)));
 			__dl_clear_params(p);
 			raw_spin_unlock(&dl_b->lock);
 		}
@@ -222,6 +222,10 @@ void init_dl_rq(struct dl_rq *dl_rq)
 #else
 	init_dl_bw(&dl_rq->dl_bw);
 #endif
+	if (global_rt_runtime() == RUNTIME_INF)
+		dl_rq->extra_bw = 1 << 20;
+	else
+		dl_rq->extra_bw = to_ratio(global_rt_period(), global_rt_runtime());
 }
 
 #ifdef CONFIG_SMP
@@ -966,10 +970,10 @@ u64 grub_reclaim(u64 delta, struct rq *rq, u64 u)
 {
 	u64 u_act;
 
-	if (rq->dl.this_bw - rq->dl.running_bw > (1 << 20) - u)
+	if (rq->dl.this_bw + rq->dl.extra_bw - rq->dl.running_bw > (1 << 20) - u)
 		u_act = u;
 	else
-		u_act = (1 << 20) - rq->dl.this_bw + rq->dl.running_bw;
+		u_act = (1 << 20) - rq->dl.this_bw - rq->dl.extra_bw + rq->dl.running_bw;
 
 	return (delta * u_act) >> 20;
 }
@@ -1078,7 +1082,7 @@ static enum hrtimer_restart inactive_task_timer(struct hrtimer *timer)
 		}
 
 		raw_spin_lock(&dl_b->lock);
-		__dl_clear(dl_b, p->dl.dl_bw);
+		__dl_clear(dl_b, p->dl.dl_bw, dl_bw_cpus(task_cpu(p)));
 		raw_spin_unlock(&dl_b->lock);
 		__dl_clear_params(p);
 
@@ -2043,7 +2047,7 @@ static void set_cpus_allowed_dl(struct task_struct *p,
 		 * until we complete the update.
 		 */
 		raw_spin_lock(&src_dl_b->lock);
-		__dl_clear(src_dl_b, p->dl.dl_bw);
+		__dl_clear(src_dl_b, p->dl.dl_bw, dl_bw_cpus(task_cpu(p)));
 		raw_spin_unlock(&src_dl_b->lock);
 	}
 
