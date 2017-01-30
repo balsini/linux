@@ -52,8 +52,8 @@ void add_running_bw(struct sched_dl_entity *dl_se, struct dl_rq *dl_rq)
 
 	lockdep_assert_held(&(rq_of_dl_rq(dl_rq))->lock);
 	dl_rq->running_bw += dl_se->dl_bw;
-	SCHED_WARN_ON(dl_rq->running_bw < old); /* overflow */
-	SCHED_WARN_ON(dl_rq->running_bw > dl_rq->this_bw);
+	WARN_ON(dl_rq->running_bw < old); /* overflow */
+	WARN_ON(dl_rq->running_bw > dl_rq->this_bw);
 }
 
 static inline
@@ -63,7 +63,7 @@ void sub_running_bw(struct sched_dl_entity *dl_se, struct dl_rq *dl_rq)
 
 	lockdep_assert_held(&(rq_of_dl_rq(dl_rq))->lock);
 	dl_rq->running_bw -= dl_se->dl_bw;
-	SCHED_WARN_ON(dl_rq->running_bw > old); /* underflow */
+	WARN_ON(dl_rq->running_bw > old); /* underflow */
 	if (dl_rq->running_bw > old)
 		dl_rq->running_bw = 0;
 }
@@ -75,7 +75,7 @@ void add_rq_bw(struct sched_dl_entity *dl_se, struct dl_rq *dl_rq)
 
 	lockdep_assert_held(&(rq_of_dl_rq(dl_rq))->lock);
 	dl_rq->this_bw += dl_se->dl_bw;
-	SCHED_WARN_ON(dl_rq->this_bw < old); /* overflow */
+	WARN_ON(dl_rq->this_bw < old); /* overflow */
 }
 
 static inline
@@ -85,10 +85,10 @@ void sub_rq_bw(struct sched_dl_entity *dl_se, struct dl_rq *dl_rq)
 
 	lockdep_assert_held(&(rq_of_dl_rq(dl_rq))->lock);
 	dl_rq->this_bw -= dl_se->dl_bw;
-	SCHED_WARN_ON(dl_rq->this_bw > old); /* underflow */
+	WARN_ON(dl_rq->this_bw > old); /* underflow */
 	if (dl_rq->this_bw > old)
 		dl_rq->this_bw = 0;
-	SCHED_WARN_ON(dl_rq->running_bw > dl_rq->this_bw);
+	WARN_ON(dl_rq->running_bw > dl_rq->this_bw);
 }
 
 static void task_non_contending(struct task_struct *p)
