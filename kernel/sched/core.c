@@ -635,6 +635,10 @@ bool sched_can_stop_tick(struct rq *rq)
 {
 	int fifo_nr_running;
 
+	/* AB tasks, even if single, need the tick */
+	if (rq->ab.ab_nr_running)
+		return false;
+
 	/* Deadline tasks, even if single, need the tick */
 	if (rq->dl.dl_nr_running)
 		return false;
@@ -808,7 +812,9 @@ static inline int normal_prio(struct task_struct *p)
 {
 	int prio;
 
-	if (task_has_dl_policy(p))
+	if (task_has_ab_policy(p))
+		prio = MAX_AB_PRIO-1;
+	else if (task_has_dl_policy(p))
 		prio = MAX_DL_PRIO-1;
 	else if (task_has_rt_policy(p))
 		prio = MAX_RT_PRIO-1 - p->rt_priority;
@@ -862,7 +868,7 @@ static inline void check_class_changed(struct rq *rq, struct task_struct *p,
 	if (prev_class != p->sched_class) {
 		if (prev_class->switched_from)
 			prev_class->switched_from(rq, p);
-
+		
 		p->sched_class->switched_to(rq, p);
 	} else if (oldprio != p->prio || dl_task(p))
 		p->sched_class->prio_changed(rq, p, oldprio);
@@ -2176,6 +2182,12 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->rt.time_slice	= sched_rr_timeslice;
 	p->rt.on_rq		= 0;
 	p->rt.on_list		= 0;
+	
+	//plist_node_init(&p->ab.active_elem, 0);
+	//plist_node_init(&p->ab.pushable_elem, 0);
+	__ab_clear_params(p);
+
+	__ab_clear_params(p);
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	INIT_HLIST_HEAD(&p->preempt_notifiers);
@@ -3692,7 +3704,7 @@ void rt_mutex_setprio(struct task_struct *p, struct task_struct *pi_task)
 	 *      --> -dl task blocks on mutex A and could preempt the
 	 *          running task
 	 */
-	if (dl_prio(prio)) {
+	else if (dl_prio(prio)) {
 		if (!dl_prio(p->normal_prio) ||
 		    (pi_task && dl_entity_preempt(&pi_task->dl, &p->dl))) {
 			p->dl.dl_boosted = 1;
@@ -3916,7 +3928,9 @@ static void __setscheduler_params(struct task_struct *p,
 
 	p->policy = policy;
 
-	if (dl_policy(policy))
+	if (ab_policy(policy))
+		__setparam_ab(p, attr);
+	else if (dl_policy(policy))
 		__setparam_dl(p, attr);
 	else if (fair_policy(policy))
 		p->static_prio = NICE_TO_PRIO(attr->sched_nice);
@@ -3945,7 +3959,9 @@ static void __setscheduler(struct rq *rq, struct task_struct *p,
 	if (keep_boost)
 		p->prio = rt_effective_prio(p, p->prio);
 
-	if (dl_prio(p->prio))
+	if (ab_prio(p->prio))
+		p->sched_class = &ab_sched_class;
+	else if (dl_prio(p->prio))
 		p->sched_class = &dl_sched_class;
 	else if (rt_prio(p->prio))
 		p->sched_class = &rt_sched_class;
@@ -3996,7 +4012,7 @@ recheck:
 		if (!valid_policy(policy))
 			return -EINVAL;
 	}
-
+	
 	if (attr->sched_flags &
 		~(SCHED_FLAG_RESET_ON_FORK | SCHED_FLAG_RECLAIM))
 		return -EINVAL;
@@ -4010,6 +4026,7 @@ recheck:
 	    (!p->mm && attr->sched_priority > MAX_RT_PRIO-1))
 		return -EINVAL;
 	if ((dl_policy(policy) && !__checkparam_dl(attr)) ||
+	    (ab_policy(policy) && !__checkparam_ab(attr)) ||
 	    (rt_policy(policy) != (attr->sched_priority != 0)))
 		return -EINVAL;
 
@@ -4043,7 +4060,11 @@ recheck:
 		  * unprivileged DL tasks to increase their relative deadline
 		  * or reduce their runtime (both ways reducing utilization)
 		  */
-		if (dl_policy(policy))
+		if (dl_policy(policy) || ab_policy(policy))
+			return -EPERM;
+		
+		
+		if (ab_policy(policy))
 			return -EPERM;
 
 		/*
@@ -4099,12 +4120,15 @@ recheck:
 			goto change;
 		if (dl_policy(policy) && dl_param_changed(p, attr))
 			goto change;
+		if (ab_policy(policy) && ab_param_changed(p, attr))
+			goto change;
 
 		p->sched_reset_on_fork = reset_on_fork;
 		task_rq_unlock(rq, p, &rf);
 		return 0;
 	}
 change:
+
 
 	if (user) {
 #ifdef CONFIG_RT_GROUP_SCHED
@@ -4176,7 +4200,7 @@ change:
 		dequeue_task(rq, p, queue_flags);
 	if (running)
 		put_prev_task(rq, p);
-
+	
 	prev_class = p->sched_class;
 	__setscheduler(rq, p, attr, pi);
 
@@ -4563,7 +4587,9 @@ SYSCALL_DEFINE4(sched_getattr, pid_t, pid, struct sched_attr __user *, uattr,
 	attr.sched_policy = p->policy;
 	if (p->sched_reset_on_fork)
 		attr.sched_flags |= SCHED_FLAG_RESET_ON_FORK;
-	if (task_has_dl_policy(p))
+	if (task_has_ab_policy(p))
+		__getparam_ab(p, &attr);
+	else if (task_has_dl_policy(p))
 		__getparam_dl(p, &attr);
 	else if (task_has_rt_policy(p))
 		attr.sched_priority = p->rt_priority;
@@ -5709,6 +5735,7 @@ void __init sched_init_smp(void)
 
 	init_sched_rt_class();
 	init_sched_dl_class();
+	init_sched_ab_class();
 
 	sched_init_smt();
 
@@ -5826,6 +5853,7 @@ void __init sched_init(void)
 		init_cfs_rq(&rq->cfs);
 		init_rt_rq(&rq->rt);
 		init_dl_rq(&rq->dl);
+		init_ab_rq(&rq->ab);
 #ifdef CONFIG_FAIR_GROUP_SCHED
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
 		INIT_LIST_HEAD(&rq->leaf_cfs_rq_list);

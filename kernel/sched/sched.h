@@ -4,7 +4,9 @@
 #include <linux/sched/sysctl.h>
 #include <linux/sched/topology.h>
 #include <linux/sched/rt.h>
+#include <linux/sched/ab.h>
 #include <linux/sched/deadline.h>
+#include <linux/sched/ab.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/wake_q.h>
 #include <linux/sched/signal.h>
@@ -135,6 +137,11 @@ static inline int rt_policy(int policy)
 	return policy == SCHED_FIFO || policy == SCHED_RR;
 }
 
+static inline int ab_policy(int policy)
+{
+	return policy == SCHED_AB;
+}
+
 static inline int dl_policy(int policy)
 {
 	return policy == SCHED_DEADLINE;
@@ -142,7 +149,7 @@ static inline int dl_policy(int policy)
 static inline bool valid_policy(int policy)
 {
 	return idle_policy(policy) || fair_policy(policy) ||
-		rt_policy(policy) || dl_policy(policy);
+		rt_policy(policy) || dl_policy(policy) || ab_policy(policy);
 }
 
 static inline int task_has_rt_policy(struct task_struct *p)
@@ -153,6 +160,11 @@ static inline int task_has_rt_policy(struct task_struct *p)
 static inline int task_has_dl_policy(struct task_struct *p)
 {
 	return dl_policy(p->policy);
+}
+
+static inline int task_has_ab_policy(struct task_struct *p)
+{
+	return ab_policy(p->policy);
 }
 
 /*
@@ -253,10 +265,15 @@ extern void sched_dl_do_global(void);
 extern int sched_dl_overflow(struct task_struct *p, int policy,
 			     const struct sched_attr *attr);
 extern void __setparam_dl(struct task_struct *p, const struct sched_attr *attr);
+extern void __setparam_ab(struct task_struct *p, const struct sched_attr *attr);
 extern void __getparam_dl(struct task_struct *p, struct sched_attr *attr);
+extern void __getparam_ab(struct task_struct *p, struct sched_attr *attr);
 extern bool __checkparam_dl(const struct sched_attr *attr);
+extern bool __checkparam_ab(const struct sched_attr *attr);
 extern void __dl_clear_params(struct task_struct *p);
+extern void __ab_clear_params(struct task_struct *p);
 extern bool dl_param_changed(struct task_struct *p, const struct sched_attr *attr);
+extern bool ab_param_changed(struct task_struct *p, const struct sched_attr *attr);
 extern int dl_task_can_attach(struct task_struct *p,
 			      const struct cpumask *cs_cpus_allowed);
 extern int dl_cpuset_cpumask_can_shrink(const struct cpumask *cur,
@@ -547,6 +564,12 @@ struct rt_rq {
 #endif
 };
 
+/* Runqueue fields for SCHED_AB class */
+struct ab_rq {
+	struct list_head	runnable_tasks;
+	unsigned int		ab_nr_running;
+};
+
 /* Deadline class' related fields in a runqueue */
 struct dl_rq {
 	/* runqueue is an rbtree, ordered by deadline */
@@ -698,6 +721,7 @@ struct rq {
 	struct cfs_rq cfs;
 	struct rt_rq rt;
 	struct dl_rq dl;
+	struct ab_rq ab;
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/* list of leaf cfs_rq on this cpu: */
@@ -1472,12 +1496,13 @@ static inline void set_curr_task(struct rq *rq, struct task_struct *curr)
 #ifdef CONFIG_SMP
 #define sched_class_highest (&stop_sched_class)
 #else
-#define sched_class_highest (&dl_sched_class)
+#define sched_class_highest (&ab_sched_class)
 #endif
 #define for_each_class(class) \
    for (class = sched_class_highest; class; class = class->next)
 
 extern const struct sched_class stop_sched_class;
+extern const struct sched_class ab_sched_class;
 extern const struct sched_class dl_sched_class;
 extern const struct sched_class rt_sched_class;
 extern const struct sched_class fair_sched_class;
@@ -1524,6 +1549,7 @@ extern void sysrq_sched_debug_show(void);
 extern void sched_init_granularity(void);
 extern void update_max_interval(void);
 
+extern void init_sched_ab_class(void);
 extern void init_sched_dl_class(void);
 extern void init_sched_rt_class(void);
 extern void init_sched_fair_class(void);
@@ -1967,6 +1993,7 @@ print_numa_stats(struct seq_file *m, int node, unsigned long tsf,
 extern void init_cfs_rq(struct cfs_rq *cfs_rq);
 extern void init_rt_rq(struct rt_rq *rt_rq);
 extern void init_dl_rq(struct dl_rq *dl_rq);
+extern void init_ab_rq(struct ab_rq *ab_rq);
 
 extern void cfs_bandwidth_usage_inc(void);
 extern void cfs_bandwidth_usage_dec(void);

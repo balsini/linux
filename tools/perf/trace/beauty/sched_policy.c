@@ -9,6 +9,9 @@
 #ifndef SCHED_DEADLINE
 #define SCHED_DEADLINE 6
 #endif
+#ifndef SCHED_AB
+#define SCHED_AB 7
+#endif
 #ifndef SCHED_RESET_ON_FORK
 #define SCHED_RESET_ON_FORK 0x40000000
 #endif
@@ -17,7 +20,7 @@ static size_t syscall_arg__scnprintf_sched_policy(char *bf, size_t size,
 						  struct syscall_arg *arg)
 {
 	const char *policies[] = {
-		"NORMAL", "FIFO", "RR", "BATCH", "ISO", "IDLE", "DEADLINE",
+		"NORMAL", "FIFO", "RR", "BATCH", "ISO", "IDLE", "DEADLINE", "AB"
 	};
 	size_t printed;
 	int policy = arg->val,

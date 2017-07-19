@@ -428,6 +428,15 @@ struct sched_rt_entity {
 #endif
 } __randomize_layout;
 
+struct sched_ab_entity {
+	int				runnable;
+	struct list_head		runnable_elem;
+
+	u64				runtime;
+	u64				deadline;
+	u64				period;
+};
+
 struct sched_dl_entity {
 	struct rb_node			rb_node;
 
@@ -566,6 +575,7 @@ struct task_struct {
 	struct task_group		*sched_task_group;
 #endif
 	struct sched_dl_entity		dl;
+	struct sched_ab_entity		ab;
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	/* List of struct preempt_notifier: */
