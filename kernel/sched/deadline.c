@@ -732,7 +732,7 @@ extern bool sched_rt_bandwidth_account(struct rt_rq *rt_rq);
  * Update the current task's runtime statistics (provided it is still
  * a -deadline task and has not been removed from the dl_rq).
  */
-static void update_curr_dl(struct rq *rq)
+void update_curr_dl(struct rq *rq)
 {
 	struct task_struct *curr = rq->curr;
 	struct sched_dl_entity *dl_se = &curr->dl;

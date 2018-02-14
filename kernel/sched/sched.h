@@ -84,6 +84,8 @@ static inline void update_cpu_load_active(struct rq *this_rq) { }
  */
 #define RUNTIME_INF	((u64)~0ULL)
 
+void update_curr_dl(struct rq *rq);
+
 static inline int idle_policy(int policy)
 {
 	return policy == SCHED_IDLE;
