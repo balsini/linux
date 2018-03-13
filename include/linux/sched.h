@@ -1508,6 +1508,7 @@ struct sched_dl_entity {
 	 * all its available runtime during the last job.
 	 */
 	int dl_throttled, dl_new, dl_boosted, dl_yielded;
+	int dl_overrun;
 
 	/*
 	 * Bandwidth enforcement timer. Each -deadline task has its
