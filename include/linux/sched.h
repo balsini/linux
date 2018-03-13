@@ -1584,6 +1584,7 @@ struct sched_dl_entity {
 	 * code.
 	 */
 	int dl_throttled, dl_boosted, dl_yielded, dl_non_contending;
+	int dl_overrun;
 
 	/*
 	 * Bandwidth enforcement timer. Each -deadline task has its

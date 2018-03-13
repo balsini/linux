@@ -48,6 +48,12 @@
  */
 #define SCHED_FLAG_RESET_ON_FORK	0x01
 #define SCHED_FLAG_RECLAIM		0x02
-#define SCHED_FLAG_SPECIAL		0x04
+#define SCHED_FLAG_DL_OVERRUN		0x04
+#define SCHED_FLAG_SPECIAL		0x08
+
+#define SCHED_FLAG_ALL (SCHED_FLAG_RESET_ON_FORK       | \
+                        SCHED_FLAG_RECLAIM             | \
+                        SCHED_FLAG_SPECIAL             | \
+                        SCHED_FLAG_DL_OVERRUN)
 
 #endif /* _UAPI_LINUX_SCHED_H */
