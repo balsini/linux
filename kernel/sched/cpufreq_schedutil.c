@@ -539,9 +539,13 @@ static int sugov_kthread_create(struct sugov_policy *sg_policy)
 		.sched_flags = SCHED_FLAG_SPECIAL,
 		.sched_nice = 0,
 		.sched_priority = 0,
-		.sched_runtime = 0,
-		.sched_deadline = 0,
-		.sched_period = 0,
+		/*
+		 * Fake (unused) bandwidth; workaround to "fix"
+		 * priority inheritance.
+		 */
+		.sched_runtime  =  1000000,
+		.sched_deadline = 10000000,
+		.sched_period   = 10000000,
 	};
 	struct cpufreq_policy *policy = sg_policy->policy;
 	int ret;
