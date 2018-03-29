@@ -211,21 +211,16 @@ static void sugov_get_util(unsigned long *util, unsigned long *util_dl, unsigned
 	unsigned long max_cap, rt;
 	unsigned long dl = (rq->dl.running_bw * SCHED_CAPACITY_SCALE) >> 20;
 	unsigned long cfs;
-	s64 delta;
 
 	max_cap = arch_scale_cpu_capacity(NULL, cpu);
 
 	sched_avg_update(rq);
-	delta = time - rq->age_stamp;
-	if (unlikely(delta < 0))
-		delta = 0;
-	rt = div64_u64(rq->rt_avg, sched_avg_period() + delta);
-	rt = (rt * max_cap) >> SCHED_CAPACITY_SHIFT;
+	if (rq->rt.rt_nr_running > 0)
+		rt = max_cap;
 
 	*util = boosted_cpu_util(cpu);
 	cfs = *util;
-	if (likely(use_pelt()))
-		*util = min((*util + rt + dl), max_cap);
+	*util = min((*util + rt + dl), max_cap);
 
 	*util_dl = dl;
 	*max = max_cap;
@@ -851,3 +846,4 @@ static int __init sugov_register(void)
 	return cpufreq_register_governor(&cpufreq_gov_schedutil);
 }
 fs_initcall(sugov_register);
+
