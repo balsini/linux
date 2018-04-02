@@ -1437,6 +1437,34 @@ static const struct file_operations proc_pid_sched_operations = {
 
 #endif
 
+static int sched_sesr_show(struct seq_file *m, void *v)
+{
+	struct inode *inode = m->private;
+	struct task_struct *p;
+
+	p = get_proc_task(inode);
+	if (!p)
+		return -ESRCH;
+
+	seq_printf(m, "%Ld\n", (long long)(p->se.sum_exec_scaled_runtime));
+
+	put_task_struct(p);
+
+	return 0;
+}
+
+static int sched_sesr_open(struct inode *inode, struct file *filp)
+{
+	return single_open(filp, sched_sesr_show, inode);
+}
+
+static const struct file_operations proc_pid_sched_sum_exec_scaled_runtime = {
+	.open		= sched_sesr_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
 #ifdef CONFIG_SCHED_AUTOGROUP
 /*
  * Print out autogroup related information:
@@ -2865,6 +2893,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_SCHED_DEBUG
 	REG("sched",      S_IRUGO|S_IWUSR, proc_pid_sched_operations),
 #endif
+	REG("sched_sum_exec_scaled_runtime", S_IRUGO, proc_pid_sched_sum_exec_scaled_runtime),
 #ifdef CONFIG_SCHED_AUTOGROUP
 	REG("autogroup",  S_IRUGO|S_IWUSR, proc_pid_sched_autogroup_operations),
 #endif

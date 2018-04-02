@@ -1035,6 +1035,8 @@ static void update_curr_dl(struct rq *rq)
 		scaled_delta_exec = cap_scale(delta_exec, scale_freq);
 		scaled_delta_exec = cap_scale(scaled_delta_exec, scale_cpu);
 	}
+
+	curr->se.sum_exec_scaled_runtime += scaled_delta_exec;
 	dl_se->runtime -= scaled_delta_exec;
 
 throttle:
