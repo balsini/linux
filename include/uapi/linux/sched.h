@@ -45,7 +45,17 @@
 #define SCHED_RESET_ON_FORK     0x40000000
 
 /*
- * For the sched_{set,get}attr() calls
+ * For the sched_{set,get}attr() calls:
+ * - DL_ABSOLUTE: sched_getattr() returns the current absolute deadline and remaining
+ *   runtime, instead of the sched_runtime and sched_deadline values.
+ */
+#define SCHED_GETATTR_FLAGS_DL_ABSOLUTE	0x01
+
+#define SCHED_GETATTR_FLAGS_ALL ( \
+			SCHED_GETATTR_FLAGS_DL_ABSOLUTE)
+
+/*
+ * For the struct sched_attr's sched_flags
  */
 #define SCHED_FLAG_RESET_ON_FORK	0x01
 #define SCHED_FLAG_RECLAIM		0x02

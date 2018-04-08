@@ -4008,14 +4008,53 @@ static void __setscheduler(struct rq *rq, struct task_struct *p,
 }
 
 static void
-__getparam_dl(struct task_struct *p, struct sched_attr *attr)
+__getparam_dl(struct task_struct *p, struct sched_attr *attr, unsigned int flags)
 {
 	struct sched_dl_entity *dl_se = &p->dl;
 
 	attr->sched_priority = p->rt_priority;
-	attr->sched_runtime = dl_se->dl_runtime;
-	attr->sched_deadline = dl_se->dl_deadline;
+
+	if (flags == SCHED_GETATTR_FLAGS_DL_ABSOLUTE) {
+		/*
+		 * in mainline explained as: Handle the tick only if it appears the remote CPU is running in full
+		 * dynticks mode. The check is racy by nature, but missing a tick or
+		 * having one too much is no big deal because the scheduler tick updates
+		 * statistics and checks timeslices in a time-independent way, regardless
+		 * of when exactly it is running.
+		 */
+		if (p->on_cpu) {
+			struct rq *rq = cpu_rq(p->cpu);
+			struct rq_flags rf;
+
+			/* in mainline uses: rq_lock_irq(rq, &rf); */ {
+			raw_spin_lock_irq(&rq->lock);
+				/* in mainline uses: rq_pin_lock(rq, &rf); */ {
+					rf.cookie = lockdep_pin_lock(&rq->lock);
+				}
+			}
+			sched_clock_tick();
+			update_rq_clock(rq);
+			p->sched_class->task_tick(rq, p, 0);
+			/* in mainline uses: rq_unlock_irq(rq, &rf); */ {
+				/* in mainline uses: rq_unpin_lock(rq, &rf); */ {
+					lockdep_unpin_lock(&rq->lock, rf.cookie);
+				}
+			raw_spin_unlock_irq(&rq->lock);
+			}
+		}
+
+		/*
+		 * If the task is throttled, this value could be negative, but sched_runtime
+		 * is unsigned.
+		 */
+		attr->sched_runtime = dl_se->runtime <= 0 ? 0 : dl_se->runtime;
+		attr->sched_deadline = dl_se->deadline;
+	} else {
+		attr->sched_runtime = dl_se->dl_runtime;
+		attr->sched_deadline = dl_se->dl_deadline;
+	}
 	attr->sched_period = dl_se->dl_period;
+
 	attr->sched_flags = dl_se->flags;
 }
 
@@ -4682,7 +4721,8 @@ SYSCALL_DEFINE4(sched_getattr, pid_t, pid, struct sched_attr __user *, uattr,
 	int retval;
 
 	if (!uattr || pid < 0 || size > PAGE_SIZE ||
-	    size < SCHED_ATTR_SIZE_VER0 || flags)
+	    size < SCHED_ATTR_SIZE_VER0 ||
+	    flags & ~SCHED_GETATTR_FLAGS_ALL)
 		return -EINVAL;
 
 	rcu_read_lock();
@@ -4699,7 +4739,7 @@ SYSCALL_DEFINE4(sched_getattr, pid_t, pid, struct sched_attr __user *, uattr,
 	if (p->sched_reset_on_fork)
 		attr.sched_flags |= SCHED_FLAG_RESET_ON_FORK;
 	if (task_has_dl_policy(p))
-		__getparam_dl(p, &attr);
+		__getparam_dl(p, &attr, flags);
 	else if (task_has_rt_policy(p))
 		attr.sched_priority = p->rt_priority;
 	else

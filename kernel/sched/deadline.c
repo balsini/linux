@@ -878,7 +878,7 @@ u64 grub_reclaim(u64 delta, struct rq *rq, u64 u)
  * Update the current task's runtime statistics (provided it is still
  * a -deadline task and has not been removed from the dl_rq).
  */
-static void update_curr_dl(struct rq *rq)
+void update_curr_dl(struct rq *rq)
 {
 	struct task_struct *curr = rq->curr;
 	struct sched_dl_entity *dl_se = &curr->dl;
