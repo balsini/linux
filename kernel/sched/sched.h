@@ -107,6 +107,8 @@ static inline void update_idle_core(struct rq *rq) { }
  */
 #define RUNTIME_INF	((u64)~0ULL)
 
+void update_curr_dl(struct rq *rq);
+
 static inline int idle_policy(int policy)
 {
 	return policy == SCHED_IDLE;
