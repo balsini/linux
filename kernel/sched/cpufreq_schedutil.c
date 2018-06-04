@@ -208,7 +208,7 @@ static void sugov_get_util(unsigned long *util, unsigned long *util_dl, unsigned
 {
 	int cpu = smp_processor_id();
 	struct rq *rq = cpu_rq(cpu);
-	unsigned long max_cap, rt;
+	unsigned long max_cap, rt, cfs;
 	unsigned long dl = (rq->dl.running_bw * SCHED_CAPACITY_SCALE) >> 20;
 	s64 delta;
 
@@ -221,12 +221,16 @@ static void sugov_get_util(unsigned long *util, unsigned long *util_dl, unsigned
 	rt = div64_u64(rq->rt_avg, sched_avg_period() + delta);
 	rt = (rt * max_cap) >> SCHED_CAPACITY_SHIFT;
 
-	*util = boosted_cpu_util(cpu);
+	cfs = boosted_cpu_util(cpu);
 	if (likely(use_pelt()))
-		*util = min((*util + rt + dl), max_cap);
+		*util = min((cfs + rt + dl), max_cap);
+	else
+		*util = cfs;
 
 	*util_dl = dl;
 	*max = max_cap;
+	trace_printk("sugov_get_util: cpu=%d cfs=%lu rt=%lu dl=%lu util=%lu",
+			cpu, cfs, rt, dl, *util);
 }
 
 static void sugov_set_iowait_boost(struct sugov_cpu *sg_cpu, u64 time,
