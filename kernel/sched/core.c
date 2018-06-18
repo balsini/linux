@@ -4729,7 +4729,7 @@ SYSCALL_DEFINE4(sched_getattr, pid_t, pid, struct sched_attr __user *, uattr,
 	int retval;
 
 	if (!uattr || pid < 0 || size > PAGE_SIZE ||
-	    size < SCHED_ATTR_SIZE_VER0 || flags)
+	    size < SCHED_ATTR_SIZE_VER0 || flags & ~SCHED_GETATTR_FLAGS_ALL)
 		return -EINVAL;
 
 	rcu_read_lock();
@@ -4746,7 +4746,7 @@ SYSCALL_DEFINE4(sched_getattr, pid_t, pid, struct sched_attr __user *, uattr,
 	if (p->sched_reset_on_fork)
 		attr.sched_flags |= SCHED_FLAG_RESET_ON_FORK;
 	if (task_has_dl_policy(p))
-		__getparam_dl(p, &attr);
+		__getparam_dl(p, &attr, flags);
 	else if (task_has_rt_policy(p))
 		attr.sched_priority = p->rt_priority;
 	else

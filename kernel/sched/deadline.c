@@ -2568,13 +2568,41 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 	dl_se->dl_density = to_ratio(dl_se->dl_deadline, dl_se->dl_runtime);
 }
 
-void __getparam_dl(struct task_struct *p, struct sched_attr *attr)
+void __getparam_dl(struct task_struct *p, struct sched_attr *attr,
+		   unsigned int flags)
 {
 	struct sched_dl_entity *dl_se = &p->dl;
 
 	attr->sched_priority = p->rt_priority;
-	attr->sched_runtime = dl_se->dl_runtime;
-	attr->sched_deadline = dl_se->dl_deadline;
+
+	if (flags & SCHED_GETATTR_FLAGS_DL_ABSOLUTE) {
+		/*
+		 * If the task is not running, its runtime is already
+		 * properly accounted. Otherwise, update clocks and the
+		 * statistics for the task.
+		 */
+		if (task_running(task_rq(p), p)) {
+			struct rq *rq;
+			struct rq_flags rf;
+
+			rq = task_rq_lock(p, &rf);
+			sched_clock_tick();
+			update_rq_clock(rq);
+			task_tick_dl(rq, p, 0);
+			task_rq_unlock(rq, p, &rf);
+		}
+
+		/*
+		 * If the task is throttled, this value could be negative,
+		 * but sched_runtime is unsigned.
+		 */
+		attr->sched_runtime = dl_se->runtime <= 0 ? 0 : dl_se->runtime;
+		attr->sched_deadline = dl_se->deadline;
+	} else {
+		attr->sched_runtime = dl_se->dl_runtime;
+		attr->sched_deadline = dl_se->dl_deadline;
+	}
+
 	attr->sched_period = dl_se->dl_period;
 	attr->sched_flags = dl_se->flags;
 }
