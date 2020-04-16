@@ -254,6 +254,8 @@ bpf_extfuse_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_extfuse_read_args_proto;
 	case BPF_FUNC_extfuse_write_args:
 		return &bpf_extfuse_write_args_proto;
+	case BPF_FUNC_tail_call:
+		return &bpf_tail_call_proto;
 	default:
 		return NULL;
 	}
