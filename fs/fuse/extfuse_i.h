@@ -34,7 +34,7 @@ struct extfuse_out {
 
 	/** Last argument is variable length (can be shorter than
 	    arg->size) */
-	unsigned argvar:1;
+	unsigned argvar : 1;
 
 	/** Number or arguments */
 	unsigned numargs;
@@ -60,11 +60,10 @@ struct extfuse_req {
 
 extern int extfuse_load_prog(struct fuse_conn *fc, int fd);
 extern void extfuse_unload_prog(struct fuse_conn *fc);
-extern int extfuse_request_send(struct fuse_conn *fc,
-		struct fuse_req *req);
+extern int extfuse_request_send(struct fuse_conn *fc, struct fuse_req *req);
 #else
 
-#define EXTFUSE_FLAGS	0
+#define EXTFUSE_FLAGS		0
 
 static inline int extfuse_load_prog(struct fuse_conn *fc, int fd)
 {
@@ -77,7 +76,7 @@ static inline void extfuse_unload_prog(struct fuse_conn *fc)
 }
 
 static inline int extfuse_request_send(struct fuse_conn *fc,
-		struct fuse_req *req)
+				       struct fuse_req *req)
 {
 	return -ENOSYS;
 }
