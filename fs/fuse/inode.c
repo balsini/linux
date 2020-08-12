@@ -965,6 +965,12 @@ static void process_init_reply(struct fuse_conn *fc, struct fuse_args *args,
 					min_t(unsigned int, FUSE_MAX_MAX_PAGES,
 					max_t(unsigned int, arg->max_pages, 1));
 			}
+			if (arg->flags & FUSE_PASSTHROUGH) {
+				fc->passthrough = 1;
+				/* Prevent further stacking */
+				fc->sb->s_stack_depth =
+					FILESYSTEM_MAX_STACK_DEPTH;
+			}
 		} else {
 			ra_pages = fc->max_read / PAGE_SIZE;
 			fc->no_lock = 1;
@@ -1002,7 +1008,8 @@ void fuse_send_init(struct fuse_conn *fc)
 		FUSE_WRITEBACK_CACHE | FUSE_NO_OPEN_SUPPORT |
 		FUSE_PARALLEL_DIROPS | FUSE_HANDLE_KILLPRIV | FUSE_POSIX_ACL |
 		FUSE_ABORT_ERROR | FUSE_MAX_PAGES | FUSE_CACHE_SYMLINKS |
-		FUSE_NO_OPENDIR_SUPPORT | FUSE_EXPLICIT_INVAL_DATA;
+		FUSE_NO_OPENDIR_SUPPORT | FUSE_EXPLICIT_INVAL_DATA |
+		FUSE_PASSTHROUGH;
 	ia->args.opcode = FUSE_INIT;
 	ia->args.in_numargs = 1;
 	ia->args.in_args[0].size = sizeof(ia->in);
@@ -1428,18 +1435,24 @@ static int __init fuse_fs_init(void)
 	if (!fuse_inode_cachep)
 		goto out;
 
-	err = register_fuseblk();
+	err = fuse_passthrough_aio_request_cache_init();
 	if (err)
 		goto out2;
 
-	err = register_filesystem(&fuse_fs_type);
+	err = register_fuseblk();
 	if (err)
 		goto out3;
 
+	err = register_filesystem(&fuse_fs_type);
+	if (err)
+		goto out4;
+
 	return 0;
 
- out3:
+ out4:
 	unregister_fuseblk();
+ out3:
+	fuse_passthrough_aio_request_cache_destroy();
  out2:
 	kmem_cache_destroy(fuse_inode_cachep);
  out:
@@ -1457,6 +1470,7 @@ static void fuse_fs_cleanup(void)
 	 */
 	rcu_barrier();
 	kmem_cache_destroy(fuse_inode_cachep);
+	fuse_passthrough_aio_request_cache_destroy();
 }
 
 static struct kobject *fuse_kobj;
