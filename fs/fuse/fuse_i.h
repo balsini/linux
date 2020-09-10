@@ -1106,5 +1106,7 @@ void fuse_free_conn(struct fuse_conn *fc);
 
 int fuse_passthrough_setup(struct fuse_req *req, unsigned int fd);
 void fuse_passthrough_release(struct fuse_file *ff);
+ssize_t fuse_passthrough_read_iter(struct kiocb *iocb, struct iov_iter *to);
+ssize_t fuse_passthrough_write_iter(struct kiocb *iocb, struct iov_iter *from);
 
 #endif /* _FS_FUSE_I_H */
