@@ -2219,21 +2219,53 @@ static int fuse_device_clone(struct fuse_conn *fc, struct file *new)
 	return 0;
 }
 
+int fuse_passthrough_open(struct fuse_dev *fud,
+			  struct fuse_passthrough_out *pto)
+{
+	int ret;
+	struct fuse_req *req;
+	struct fuse_pqueue *fpq = &fud->pq;
+	struct fuse_conn *fc = fud->fc;
+
+	if (!fc->passthrough)
+		return -EPERM;
+
+	/* This field is reserved for future use */
+	if (pto->len != 0)
+		return -EINVAL;
+
+	spin_lock(&fpq->lock);
+	req = request_find(fpq, pto->unique & ~FUSE_INT_REQ_BIT);
+	if (!req) {
+		spin_unlock(&fpq->lock);
+		return -ENOENT;
+	}
+	__fuse_get_request(req);
+	spin_unlock(&fpq->lock);
+
+	ret = fuse_passthrough_setup(req, pto->fd);
+
+	__fuse_put_request(req);
+	return ret;
+}
+
 static long fuse_dev_ioctl(struct file *file, unsigned int cmd,
 			   unsigned long arg)
 {
-	int err = -ENOTTY;
+	int err;
+	int oldfd;
+	struct fuse_dev *fud;
+	struct fuse_passthrough_out pto;
 
-	if (cmd == FUSE_DEV_IOC_CLONE) {
-		int oldfd;
-
+	switch (cmd) {
+	case FUSE_DEV_IOC_CLONE:
 		err = -EFAULT;
 		if (!get_user(oldfd, (__u32 __user *) arg)) {
 			struct file *old = fget(oldfd);
 
 			err = -EINVAL;
 			if (old) {
-				struct fuse_dev *fud = NULL;
+				fud = NULL;
 
 				/*
 				 * Check against file->f_op because CUSE
@@ -2251,6 +2283,21 @@ static long fuse_dev_ioctl(struct file *file, unsigned int cmd,
 				fput(old);
 			}
 		}
+		break;
+	case FUSE_DEV_IOC_PASSTHROUGH_OPEN:
+		err = -EFAULT;
+		if (!copy_from_user(&pto,
+				    (struct fuse_passthrough_out __user *)arg,
+				    sizeof(pto))) {
+			err = -EINVAL;
+			fud = fuse_get_dev(file);
+			if (fud)
+				err = fuse_passthrough_open(fud, &pto);
+		}
+		break;
+	default:
+		err = -ENOTTY;
+		break;
 	}
 	return err;
 }
