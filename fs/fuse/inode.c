@@ -654,6 +654,8 @@ void fuse_conn_put(struct fuse_conn *fc)
 			fiq->ops->release(fiq);
 		put_pid_ns(fc->pid_ns);
 		put_user_ns(fc->user_ns);
+		if (fc->creator_cred)
+			put_cred(fc->creator_cred);
 		fc->release(fc);
 	}
 }
@@ -1203,6 +1205,12 @@ int fuse_fill_super_common(struct super_block *sb, struct fuse_fs_context *ctx)
 	fc->allow_other = ctx->allow_other;
 	fc->user_id = ctx->user_id;
 	fc->group_id = ctx->group_id;
+	fc->creator_cred = prepare_creds();
+	if (!fc->creator_cred) {
+		err = -ENOMEM;
+		goto err_dev_free;
+	}
+
 	fc->max_read = max_t(unsigned, 4096, ctx->max_read);
 	fc->destroy = ctx->destroy;
 	fc->no_control = ctx->no_control;
