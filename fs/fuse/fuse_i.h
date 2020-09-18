@@ -522,6 +522,9 @@ struct fuse_conn {
 	/** The group id for this mount */
 	kgid_t group_id;
 
+	/** Creds of process which created this mount point */
+	const struct cred *creator_cred;
+
 	/** The pid namespace for this mount */
 	struct pid_namespace *pid_ns;
 
