@@ -89,6 +89,7 @@ ssize_t fuse_passthrough_read_iter(struct kiocb *iocb_fuse,
 
 	old_cred = fuse_passthrough_override_creds(fuse_filp);
 	if (is_sync_kiocb(iocb_fuse)) {
+		printk_ratelimited("passthrough read!\n");
 		ret = vfs_iter_read(passthrough_filp, iter, &iocb_fuse->ki_pos,
 				    iocbflags_to_rwf(iocb_fuse->ki_flags));
 	} else {
@@ -128,6 +129,7 @@ ssize_t fuse_passthrough_write_iter(struct kiocb *iocb_fuse,
 
 	old_cred = fuse_passthrough_override_creds(fuse_filp);
 	if (is_sync_kiocb(iocb_fuse)) {
+		printk_ratelimited("passthrough write!\n");
 		file_start_write(passthrough_filp);
 		ret = vfs_iter_write(passthrough_filp, iter, &iocb_fuse->ki_pos,
 				     iocbflags_to_rwf(iocb_fuse->ki_flags));
