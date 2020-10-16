@@ -6,9 +6,6 @@
 #include <linux/idr.h>
 #include <linux/uio.h>
 
-static DEFINE_SPINLOCK(passthrough_map_lock);
-static DEFINE_IDR(passthrough_map);
-
 struct fuse_aio_req {
 	struct kiocb iocb;
 	struct kiocb *iocb_fuse;
@@ -168,6 +165,8 @@ int fuse_passthrough_open(struct fuse_dev *fud,
 	int res;
 	struct file *passthrough_filp;
 	struct fuse_conn *fc = fud->fc;
+	struct idr *map = fc->passthrough_req;
+	spinlock_t *map_lock = &fc->passthrough_req_lock;
 
 	if (!fc->passthrough)
 		return -EPERM;
@@ -189,9 +188,9 @@ int fuse_passthrough_open(struct fuse_dev *fud,
 	}
 
 	idr_preload(GFP_KERNEL);
-	spin_lock(&passthrough_map_lock);
-	res = idr_alloc(&passthrough_map, passthrough_filp, 1, 0, GFP_ATOMIC);
-	spin_unlock(&passthrough_map_lock);
+	spin_lock(map_lock);
+	res = idr_alloc(map, passthrough_filp, 1, 0, GFP_ATOMIC);
+	spin_unlock(map_lock);
 	idr_preload_end();
 	if (res <= 0)
 		fput(passthrough_filp);
@@ -207,6 +206,8 @@ struct file *fuse_passthrough_setup(struct fuse_conn *fc,
 	struct inode *passthrough_inode;
 	struct super_block *passthrough_sb;
 	int passthrough_fh = openarg->passthrough_fh;
+	struct idr *map = fc->passthrough_req;
+	spinlock_t *map_lock = &fc->passthrough_req_lock;
 
 	if (!fc->passthrough)
 		return NULL;
@@ -215,9 +216,9 @@ struct file *fuse_passthrough_setup(struct fuse_conn *fc,
 	if (passthrough_fh == 0)
 		return NULL;
 
-	spin_lock(&passthrough_map_lock);
-	passthrough_filp = idr_remove(&passthrough_map, passthrough_fh);
-	spin_unlock(&passthrough_map_lock);
+	spin_lock(map_lock);
+	passthrough_filp = idr_remove(map, passthrough_fh);
+	spin_unlock(map_lock);
 
 	passthrough_inode = file_inode(passthrough_filp);
 	passthrough_sb = passthrough_inode->i_sb;
